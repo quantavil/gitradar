@@ -1,106 +1,129 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
-  import Navbar from './lib/Navbar.svelte';
-  import LanguageSelect from './lib/LanguageSelect.svelte';
-  import RepoCard from './lib/RepoCard.svelte';
-  import SavedView from './lib/SavedView.svelte';
-  import HistoryView from './lib/HistoryView.svelte';
-  import SettingsView from './lib/SettingsView.svelte';
-  import ConfirmModal from './lib/ConfirmModal.svelte';
-  import { repoFeed } from './lib/api.svelte';
-  import { seenStore } from './lib/seen.svelte';
-  import { setupHotkeys } from './lib/hotkeys';
-  import { ResetIcon, CheckIcon, GithubIcon, FilterIcon } from './lib/icons';
-  import type { TrendshiftRepo, ViewMode } from './lib/types';
+  import { onMount, onDestroy } from 'svelte'
+  import Navbar from './lib/Navbar.svelte'
+  import LanguageSelect from './lib/LanguageSelect.svelte'
+  import VirtualFeed from './lib/VirtualFeed.svelte'
+  import SavedView from './lib/SavedView.svelte'
+  import HistoryView from './lib/HistoryView.svelte'
+  import SettingsView from './lib/SettingsView.svelte'
+  import ConfirmModal from './lib/ConfirmModal.svelte'
+  import { repoFeed } from './lib/api.svelte'
+  import { seenStore } from './lib/seen.svelte'
+  import { setupHotkeys } from './lib/hotkeys'
+  import {
+    readThemePreference,
+    writeThemePreference,
+  } from './lib/storage/preferences'
+  import { ResetIcon, CheckIcon, GithubIcon, FilterIcon } from './lib/icons'
+  import type { TrendshiftRepo, ViewMode } from './lib/types'
 
-  let activeView = $state<ViewMode>('feed');
-  let isResetConfirmOpen = $state(false);
-  let focusedIndex = $state(-1);
-  let isDark = $state(true);
+  let activeView = $state<ViewMode>('feed')
+  let isResetConfirmOpen = $state(false)
+  let focusedIndex = $state(-1)
+  let isDark = $state(readThemePreference() === 'dark')
 
   // Undo Toast state for explicit dismiss
-  let lastDismissedRepo = $state<TrendshiftRepo | null>(null);
-  let toastVisible = $state(false);
-  let toastTimeout: ReturnType<typeof setTimeout> | null = null;
+  let lastDismissedRepo = $state<TrendshiftRepo | null>(null)
+  let toastVisible = $state(false)
+  let toastTimeout: ReturnType<typeof setTimeout> | null = null
 
-  const repos = $derived(repoFeed.repos);
-  const loading = $derived(repoFeed.loading);
-  const error = $derived(repoFeed.error);
-  const activeTimeframe = $derived(repoFeed.activeTimeframe);
+  let virtualFeedRef = $state<{ scrollToIndex: (index: number, options?: { align?: 'start' | 'center' | 'end' | 'auto' }) => void } | null>(null)
+
+  const repos = $derived(repoFeed.repos)
+  const loading = $derived(repoFeed.loading)
+  const error = $derived(repoFeed.error)
+
+  const sourceLabel = $derived.by(() => {
+    if (loading && repoFeed.catalog.length === 0) return 'Loading'
+    if (repoFeed.successfulTimeframes.length === 0) return error ? 'Unavailable' : 'Loading'
+    return repoFeed.successfulTimeframes
+      .map((tf) => tf.charAt(0).toUpperCase() + tf.slice(1))
+      .join(' + ')
+  })
 
   function handleExplicitDismiss(repo: TrendshiftRepo) {
-    const wasSeen = seenStore.isSeen(repo.full_name);
-    seenStore.toggleSeen(repo);
+    const wasSeen = seenStore.isSeen(repo.full_name)
+    void seenStore.markSeen(repo)
     if (!wasSeen) {
-      lastDismissedRepo = repo;
-      toastVisible = true;
-      if (toastTimeout) clearTimeout(toastTimeout);
+      lastDismissedRepo = repo
+      toastVisible = true
+      if (toastTimeout) clearTimeout(toastTimeout)
       toastTimeout = setTimeout(() => {
-        toastVisible = false;
-      }, 4000);
+        toastVisible = false
+      }, 4000)
     } else {
-      toastVisible = false;
+      toastVisible = false
     }
   }
 
   function handleUndoDismiss() {
     if (lastDismissedRepo) {
-      seenStore.toggleSeen(lastDismissedRepo);
-      toastVisible = false;
-      lastDismissedRepo = null;
+      void seenStore.unsee(lastDismissedRepo.full_name)
+      toastVisible = false
+      lastDismissedRepo = null
     }
   }
 
   onDestroy(() => {
     if (toastTimeout) {
-      clearTimeout(toastTimeout);
+      clearTimeout(toastTimeout)
     }
-  });
+  })
+
+  $effect(() => {
+    if (focusedIndex >= repos.length) {
+      focusedIndex = repos.length > 0 ? repos.length - 1 : -1
+    }
+  })
 
   onMount(() => {
-    // Initial theme restoration
-    const savedTheme = typeof localStorage !== 'undefined' ? localStorage.getItem('repo_radar_theme') : null;
-    if (savedTheme === 'light') {
-      isDark = false;
-    } else if (savedTheme === 'dark') {
-      isDark = true;
-    }
+    let cancelled = false
 
-    // Initial fetch of feed
-    repoFeed.fetchFeed();
-
-    // Setup hotkeys
     const cleanupHotkeys = setupHotkeys({
       onNext: () => {
-        if (activeView !== 'feed' || isResetConfirmOpen || repos.length === 0) return;
+        if (activeView !== 'feed' || isResetConfirmOpen || repos.length === 0) return
         if (focusedIndex === -1) {
-          focusedIndex = 0;
+          focusedIndex = 0
         } else {
-          focusedIndex = Math.min(focusedIndex + 1, repos.length - 1);
+          focusedIndex = Math.min(focusedIndex + 1, repos.length - 1)
         }
-        scrollFocusedIntoView();
+        virtualFeedRef?.scrollToIndex(focusedIndex, { align: 'auto' })
       },
       onPrev: () => {
-        if (activeView !== 'feed' || isResetConfirmOpen || repos.length === 0) return;
+        if (activeView !== 'feed' || isResetConfirmOpen || repos.length === 0) return
         if (focusedIndex === -1) {
-          focusedIndex = 0;
+          focusedIndex = 0
         } else {
-          focusedIndex = Math.max(focusedIndex - 1, 0);
+          focusedIndex = Math.max(focusedIndex - 1, 0)
         }
-        scrollFocusedIntoView();
+        virtualFeedRef?.scrollToIndex(focusedIndex, { align: 'auto' })
       },
       onSave: () => {
-        // Require explicit card focus before hotkey save/dismiss actions trigger
-        if (focusedIndex < 0 || activeView !== 'feed' || isResetConfirmOpen || repos.length === 0 || !repos[focusedIndex]) return;
-        seenStore.toggleSave(repos[focusedIndex]);
+        if (
+          focusedIndex < 0 ||
+          activeView !== 'feed' ||
+          isResetConfirmOpen ||
+          repos.length === 0 ||
+          !repos[focusedIndex]
+        )
+          return
+        void seenStore.toggleSave(repos[focusedIndex])
       },
       onDismiss: () => {
-        // Require explicit card focus before hotkey save/dismiss actions trigger
-        if (focusedIndex < 0 || activeView !== 'feed' || isResetConfirmOpen || repos.length === 0 || !repos[focusedIndex]) return;
-        handleExplicitDismiss(repos[focusedIndex]);
+        if (
+          focusedIndex < 0 ||
+          activeView !== 'feed' ||
+          isResetConfirmOpen ||
+          repos.length === 0 ||
+          !repos[focusedIndex]
+        )
+          return
+        handleExplicitDismiss(repos[focusedIndex])
       },
-      onReset: () => {
-        activeView = 'history';
+      onUndo: () => {
+        if (toastVisible && lastDismissedRepo) {
+          handleUndoDismiss()
+        }
       },
       onViewFeed: () => (activeView = 'feed'),
       onViewSaved: () => (activeView = 'saved'),
@@ -108,52 +131,50 @@
       onViewSettings: () => (activeView = 'settings'),
       onEscape: () => {
         if (isResetConfirmOpen) {
-          isResetConfirmOpen = false;
+          isResetConfirmOpen = false
         } else {
-          activeView = 'feed';
+          activeView = 'feed'
         }
+      },
+    })
+
+    void (async () => {
+      await seenStore.init()
+      if (!cancelled) {
+        await repoFeed.fetchFeed()
       }
-    });
+    })()
 
     return () => {
-      cleanupHotkeys();
-    };
-  });
+      cancelled = true
+      repoFeed.cancel()
+      cleanupHotkeys()
+    }
+  })
 
   // Centralized Theme Sync Effect
   $effect(() => {
     if (typeof document !== 'undefined') {
       if (isDark) {
-        document.documentElement.classList.add('dark');
+        document.documentElement.classList.add('dark')
       } else {
-        document.documentElement.classList.remove('dark');
+        document.documentElement.classList.remove('dark')
       }
-      try {
-        localStorage.setItem('repo_radar_theme', isDark ? 'dark' : 'light');
-      } catch (e) {}
+      writeThemePreference(isDark ? 'dark' : 'light')
     }
-  });
-
-  function scrollFocusedIntoView() {
-    if (typeof requestAnimationFrame !== 'undefined') {
-      requestAnimationFrame(() => {
-        const el = document.querySelector(`[data-card-index="${focusedIndex}"] [role="article"]`) as HTMLElement | null;
-        if (el) {
-          el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-          el.focus({ preventScroll: true });
-        }
-      });
-    }
-  }
+  })
 
   function handleResetAll() {
-    seenStore.resetSeen();
-    repoFeed.fetchFeed();
-    focusedIndex = -1;
+    void seenStore.resetSeen()
+    void repoFeed.fetchFeed()
+    focusedIndex = -1
   }
 </script>
 
-<div class="min-h-screen flex flex-col bg-[var(--bg-canvas)] text-[var(--text-main)] font-sans antialiased">
+<div
+  data-app-shell
+  class="min-h-screen flex flex-col bg-[var(--bg-canvas)] text-[var(--text-main)] font-sans antialiased"
+>
   <!-- Top Navigation Header -->
   <Navbar
     {activeView}
@@ -177,11 +198,22 @@
             Filter:
             <LanguageSelect
               value={repoFeed.selectedLanguage}
-              onChange={(lang) => { focusedIndex = -1; repoFeed.setLanguage(lang); }}
+              onChange={(lang) => {
+                focusedIndex = -1
+                void repoFeed.setLanguage(lang)
+              }}
             />
           </span>
           <span class="text-[var(--border-strong)]">|</span>
-          <span>Source: <strong class="text-[var(--text-main)] capitalize">{activeTimeframe} CDN</strong></span>
+          <span>
+            Source:
+            <strong class="text-[var(--text-main)]">{sourceLabel}</strong>
+            <span aria-hidden="true"> · </span>
+            <strong class="text-[var(--text-main)]">Remaining {repoFeed.remainingCount.toLocaleString()} / {repoFeed.totalCount.toLocaleString()}</strong>
+          </span>
+          <span class="sr-only" role="status" aria-live="polite">
+            {repoFeed.remainingCount} of {repoFeed.totalCount} repositories remaining
+          </span>
         </div>
       {:else}
         <!-- Non-Feed View Header (Back Button & View Title) -->
@@ -215,7 +247,7 @@
       <SettingsView bind:isDark />
     {:else}
       <!-- Feed Stream -->
-      {#if loading}
+      {#if loading && repos.length === 0}
         <!-- Skeleton Loading State -->
         <div class="space-y-4">
           <div class="py-8 flex flex-col items-center justify-center space-y-3 border border-[var(--border-subtle)] rounded-lg bg-[var(--bg-surface)] p-6 shadow-[var(--card-shadow)]">
@@ -245,12 +277,12 @@
             </div>
           {/each}
         </div>
-      {:else if error}
+      {:else if error && repos.length === 0}
         <!-- Error State -->
         <div class="py-16 text-center space-y-3 border border-[var(--border-subtle)] rounded-lg bg-[var(--bg-surface)] p-6 shadow-[var(--card-shadow)]">
           <p class="text-sm font-mono text-[var(--badge-red-text)]">{error}</p>
           <button
-            onclick={() => repoFeed.fetchFeed()}
+            onclick={() => void repoFeed.fetchFeed()}
             class="px-4 py-2 bg-[var(--bg-canvas)] text-[var(--text-main)] border border-[var(--border-subtle)] rounded-md text-xs font-mono font-medium hover:border-[var(--border-strong)] transition-all btn-press active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)]"
           >
             Try Again
@@ -283,23 +315,14 @@
           </div>
         </div>
       {:else}
-        <!-- Active Repository Feed Stream -->
-        <div class="space-y-3.5 sm:space-y-4">
-          {#each repos as repo, i (repo.full_name)}
-            <div data-card-index={i}>
-              <RepoCard
-                {repo}
-                index={i}
-                isFocused={focusedIndex === i}
-                onExplicitDismiss={handleExplicitDismiss}
-              />
-            </div>
-          {/each}
-
-          <div class="pt-4 pb-2 text-center text-xs font-mono text-[var(--text-muted)] border-t border-[var(--border-subtle)]">
-            End of feed for <strong class="text-[var(--text-main)] capitalize">{repoFeed.selectedLanguage === 'all' ? 'All Languages' : repoFeed.selectedLanguage}</strong> ({repos.length} unseen repositories loaded)
-          </div>
-        </div>
+        <!-- Virtualized Feed Stream -->
+        <VirtualFeed
+          bind:this={virtualFeedRef}
+          {repos}
+          {focusedIndex}
+          onFocusIndex={(i) => (focusedIndex = i)}
+          onDismiss={handleExplicitDismiss}
+        />
       {/if}
     {/if}
   </main>

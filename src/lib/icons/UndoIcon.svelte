@@ -1,24 +1,21 @@
 <script lang="ts">
-  let { size = 16, class: className = '', 'aria-hidden': ariaHidden = true } = $props<{
-    size?: number;
-    class?: string;
-    'aria-hidden'?: boolean | string;
-  }>();
+  import type { IconProps } from './types'
+
+  let { size = 16, class: className = '', ...restProps }: IconProps = $props()
 </script>
 
 <svg
-  xmlns="http://www.w3.org/2000/svg"
   width={size}
   height={size}
   viewBox="0 0 24 24"
   fill="none"
   stroke="currentColor"
-  stroke-width="2"
+  stroke-width="1.75"
   stroke-linecap="round"
   stroke-linejoin="round"
   class={className}
-  aria-hidden={ariaHidden}
+  {...restProps}
 >
-  <path d="M3 7v6h6" />
-  <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13" />
+  <polyline points="1 4 1 10 7 10" />
+  <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
 </svg>

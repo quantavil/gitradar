@@ -2,6 +2,7 @@
   import type { Snippet } from 'svelte';
   import type { TrendshiftRepo } from './types';
   import { getLanguageBadgeStyle } from './badges';
+  import { safeGithubUrl } from './repo-schema';
   import {
     StarIcon,
     ForkIcon,
@@ -35,18 +36,16 @@
 
   function formatDate(isoStr?: string) {
     if (!isoStr) return '';
-    try {
-      return new Date(isoStr).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-    } catch {
-      return '';
-    }
+    const date = new Date(isoStr);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
   }
 </script>
 
 <div
   class="bg-[var(--bg-surface)] border rounded-lg p-3.5 sm:p-5 transition-all duration-200 text-left shadow-[var(--card-shadow)] {
     isFocused
-      ? 'border-[var(--accent-signal)]'
+      ? 'border-[var(--accent-signal)] ring-2 ring-[var(--accent-signal)]/60 shadow-md'
       : 'border-[var(--border-subtle)] hover:border-[var(--border-strong)]'
   } {isSeen ? 'opacity-50 grayscale-[15%]' : 'opacity-100'} {containerClass}"
 >
@@ -84,7 +83,7 @@
       {/if}
 
       <a
-        href={repo.github_url || `https://github.com/${repo.full_name}`}
+        href={safeGithubUrl(repo.full_name)}
         target="_blank"
         rel="noopener noreferrer"
         class="group font-mono flex flex-col justify-center min-w-0 flex-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)] rounded"
@@ -148,7 +147,7 @@
       {/if}
 
       {#if repo.created_at}
-        <span class="hidden md:inline-block text-[var(--text-muted)]">
+        <span class="hidden lg:inline-block text-[var(--text-muted)]">
           Created {formatDate(repo.created_at)}
         </span>
       {/if}

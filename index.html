@@ -4,12 +4,10 @@
     <script>
       try {
         const theme = localStorage.getItem('repo_radar_theme');
-        if (theme === 'light') {
-          document.documentElement.classList.remove('dark');
-        } else {
-          document.documentElement.classList.add('dark');
-        }
-      } catch (e) {}
+        document.documentElement.classList.toggle('dark', theme !== 'light');
+      } catch {
+        document.documentElement.classList.add('dark');
+      }
     </script>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />

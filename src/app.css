@@ -79,8 +79,9 @@
     scrollbar-color: var(--border-subtle) transparent;
   }
 
-  *:focus-visible, input:focus, select:focus {
-    outline: none;
+  :focus-visible {
+    outline: 2px solid var(--accent-signal);
+    outline-offset: 2px;
   }
 }
 

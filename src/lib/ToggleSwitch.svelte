@@ -1,4 +1,6 @@
 <script lang="ts">
+  import type { Snippet } from 'svelte';
+
   let {
     checked = false,
     onChange,
@@ -12,8 +14,8 @@
     onChange: (val: boolean) => void;
     label: string;
     description: string;
-    iconInactive?: any;
-    iconActive?: any;
+    iconInactive?: Snippet;
+    iconActive?: Snippet;
     ariaLabel?: string;
   }>();
 </script>

@@ -1,59 +1,87 @@
 <script lang="ts">
-  import { seenStore } from './seen.svelte';
-  import ToggleSwitch from './ToggleSwitch.svelte';
-  import { SettingsIcon, SunIcon, MoonIcon, KeyboardIcon, ClockIcon } from './icons';
+  import { seenStore } from './seen.svelte'
+  import ToggleSwitch from './ToggleSwitch.svelte'
+  import { validateImportFile } from './history-import'
+  import { SettingsIcon, SunIcon, MoonIcon, KeyboardIcon, ClockIcon } from './icons'
 
   let { isDark = $bindable(true) } = $props<{
-    isDark?: boolean;
-  }>();
+    isDark?: boolean
+  }>()
 
-  let importStatus = $state<{ message: string; isError: boolean } | null>(null);
+  let importStatus = $state<{ message: string; isError: boolean } | null>(null)
+  let isImporting = $state(false)
 
   function handleExportHistory() {
-    const jsonStr = seenStore.exportHistoryJSON();
-    const blob = new Blob([jsonStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const downloadAnchor = document.createElement('a');
-    downloadAnchor.href = url;
-    downloadAnchor.download = `reporadar-history-${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
-    URL.revokeObjectURL(url);
+    const jsonStr = seenStore.exportHistoryJSON()
+    const blob = new Blob([jsonStr], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const downloadAnchor = document.createElement('a')
+    downloadAnchor.href = url
+    downloadAnchor.download = `reporadar-history-${new Date().toISOString().slice(0, 10)}.json`
+    document.body.appendChild(downloadAnchor)
+    downloadAnchor.click()
+    downloadAnchor.remove()
+    URL.revokeObjectURL(url)
   }
 
   function handleImportHistory(e: Event) {
-    const target = e.target as HTMLInputElement;
-    const file = target.files?.[0];
-    if (!file) return;
+    const target = e.target as HTMLInputElement
+    const file = target.files?.[0]
+    if (!file) return
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const content = event.target?.result as string;
-      if (!content) return;
-      const res = seenStore.importHistoryJSON(content);
-      if (res.success) {
-        importStatus = { message: `Successfully imported ${res.count} history records (overwritten).`, isError: false };
-      } else {
-        importStatus = { message: res.error || 'Failed to import history JSON.', isError: true };
+    const validation = validateImportFile(file)
+    if (!validation.ok) {
+      importStatus = { message: validation.error, isError: true }
+      target.value = ''
+      return
+    }
+
+    isImporting = true
+    const reader = new FileReader()
+    reader.onload = async (event) => {
+      try {
+        const content = event.target?.result as string
+        if (!content) {
+          importStatus = { message: 'File is empty.', isError: true }
+          return
+        }
+        const res = await seenStore.importHistoryJSON(content)
+        if (res.success) {
+          importStatus = {
+            message: `Successfully imported ${res.count} history records (overwritten).`,
+            isError: false,
+          }
+        } else {
+          importStatus = {
+            message: res.error || 'Failed to import history JSON.',
+            isError: true,
+          }
+        }
+      } finally {
+        isImporting = false
+        target.value = ''
       }
-      target.value = '';
-    };
-    reader.readAsText(file);
+    }
+    reader.onerror = () => {
+      importStatus = { message: 'Failed to read file.', isError: true }
+      isImporting = false
+      target.value = ''
+    }
+    reader.readAsText(file)
   }
 
   const shortcuts = [
     { key: '1', action: 'Switch to Feed View (Home)' },
     { key: '2', action: 'Switch to Bookmarks View' },
     { key: '3', action: 'Switch to History View' },
-    { key: '4', action: 'Switch to Settings View' },
-    { key: '?', action: 'Open Shortcuts & Settings' },
+    { key: '4 / Shift+?', action: 'Open Shortcuts & Settings' },
     { key: 'J', action: 'Move focus to next repository card' },
     { key: 'K', action: 'Move focus to previous repository card' },
     { key: 'S', action: 'Save / Bookmark active repository' },
-    { key: 'D', action: 'Toggle Seen status for active repository' },
-    { key: 'Esc', action: 'Return to Feed stream' }
-  ];
+    { key: 'D', action: 'Mark Seen for active repository' },
+    { key: 'U', action: 'Undo last dismissed repository' },
+    { key: 'Esc', action: 'Return to Feed stream' },
+  ]
 </script>
 
 {#snippet sunIconSnippet()}
@@ -65,6 +93,21 @@
 {/snippet}
 
 <div class="space-y-6 w-full">
+  {#if seenStore.persistenceError}
+    <div
+      role="alert"
+      class="p-3 bg-[var(--badge-red-bg)] text-[var(--badge-red-text)] border border-[var(--badge-red-text)]/30 rounded-lg text-xs font-mono flex items-center justify-between gap-2"
+    >
+      <span>Storage Warning: {seenStore.persistenceError}</span>
+      <button
+        onclick={() => (seenStore.persistenceError = null)}
+        class="underline font-semibold hover:opacity-80"
+      >
+        Dismiss
+      </button>
+    </div>
+  {/if}
+
   <!-- Preferences Card -->
   <div class="bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-lg shadow-[var(--card-shadow)] p-5 sm:p-6 space-y-5">
     <div class="flex items-center gap-2 border-b border-[var(--border-subtle)] pb-3">
@@ -131,11 +174,12 @@
         Export History ({seenStore.seenSize})
       </button>
 
-      <label class="px-3 py-1.5 bg-[var(--accent-signal-soft-bg)] text-[var(--accent-signal-soft-text)] border border-[var(--accent-signal)]/30 rounded text-xs font-mono font-medium hover:opacity-90 transition-all cursor-pointer btn-press focus-within:ring-2 focus-within:ring-[var(--accent-signal)]">
-        <span>Import History (.json)</span>
+      <label class="px-3 py-1.5 bg-[var(--accent-signal-soft-bg)] text-[var(--accent-signal-soft-text)] border border-[var(--accent-signal)]/30 rounded text-xs font-mono font-medium hover:opacity-90 transition-all cursor-pointer btn-press focus-within:ring-2 focus-within:ring-[var(--accent-signal)] {isImporting ? 'opacity-50 pointer-events-none' : ''}">
+        <span>{isImporting ? 'Importing...' : 'Import History (.json)'}</span>
         <input
           type="file"
           accept=".json,application/json"
+          disabled={isImporting}
           onchange={handleImportHistory}
           class="sr-only"
         />
@@ -143,7 +187,10 @@
     </div>
 
     {#if importStatus}
-      <div class="p-2.5 rounded text-xs font-mono border {importStatus.isError ? 'bg-[var(--badge-red-bg)] text-[var(--badge-red-text)] border-[var(--badge-red-text)]/30' : 'bg-[var(--accent-signal-soft-bg)] text-[var(--accent-signal-soft-text)] border-[var(--accent-signal)]/30'}">
+      <div
+        role={importStatus.isError ? 'alert' : 'status'}
+        class="p-2.5 rounded text-xs font-mono border {importStatus.isError ? 'bg-[var(--badge-red-bg)] text-[var(--badge-red-text)] border-[var(--badge-red-text)]/30' : 'bg-[var(--accent-signal-soft-bg)] text-[var(--accent-signal-soft-text)] border-[var(--accent-signal)]/30'}"
+      >
         {importStatus.message}
       </div>
     {/if}

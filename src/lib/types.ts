@@ -17,6 +17,22 @@ export interface TrendshiftRepo {
   language_filter?: string;
 }
 
+export type Timeframe = 'daily' | 'weekly' | 'monthly';
+
+export interface SeenEntry {
+  key: string;
+  repo: TrendshiftRepo;
+  seenAt: number;
+}
+
+export interface SavedEntry {
+  key: string;
+  repo: TrendshiftRepo;
+  savedAt: number;
+}
+
+export type { CatalogResult, CatalogFailure } from './trendshift-client';
+
 export type ViewMode = 'feed' | 'saved' | 'history' | 'settings';
 
 
@@ -59,8 +75,3 @@ export const LANGUAGE_OPTIONS: LanguageMeta[] = [
   { id: 'dart', label: 'Dart' },
   { id: 'zig', label: 'Zig' },
 ];
-
-export function getRepoOwner(fullName?: string): string {
-  if (!fullName) return '';
-  return fullName.split('/')[0] || '';
-}

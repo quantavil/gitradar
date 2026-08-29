@@ -48,7 +48,7 @@
     if (onExplicitDismiss) {
       onExplicitDismiss(repo);
     } else {
-      seenStore.toggleSeen(repo);
+      void seenStore.markSeen(repo);
     }
   }
 
@@ -103,7 +103,7 @@
       const THRESHOLD = 100;
 
       if (deltaX > THRESHOLD) {
-        seenStore.toggleSave(repo);
+        void seenStore.toggleSave(repo);
       } else if (deltaX < -THRESHOLD) {
         triggerDismiss();
       }
@@ -112,7 +112,6 @@
       deltaX = 0;
     };
 
-    // Attach non-passive touchmove listener to allow e.preventDefault()
     cardRef.addEventListener('touchstart', handleTouchStart, { passive: true });
     cardRef.addEventListener('touchmove', handleTouchMove, { passive: false });
     cardRef.addEventListener('touchend', handleTouchEnd, { passive: true });
@@ -126,17 +125,21 @@
 
           if (entry.isIntersecting) {
             hasBeenVisible = true;
-          } else if (hasBeenVisible && entry.boundingClientRect.bottom < 60) {
-            seenStore.markSeen(repo);
+          } else if (hasBeenVisible && entry.boundingClientRect.bottom < 56) {
+            void seenStore.markSeen(repo);
           }
         });
       },
-      { threshold: [0, 0.1] }
+      { rootMargin: '-56px 0px 0px 0px', threshold: [0, 0.1] }
     );
 
     observer.observe(cardRef);
 
     return () => {
+      if (observer) {
+        observer.disconnect();
+        observer = null;
+      }
       if (cardRef) {
         cardRef.removeEventListener('touchstart', handleTouchStart);
         cardRef.removeEventListener('touchmove', handleTouchMove);
@@ -146,16 +149,9 @@
     };
   });
 
-  onDestroy(() => {
-    if (observer) {
-      observer.disconnect();
-      observer = null;
-    }
-  });
-
   function handleSaveClick(e: MouseEvent) {
     e.stopPropagation();
-    seenStore.toggleSave(repo);
+    void seenStore.toggleSave(repo);
   }
 
   function handleSeenClick(e: MouseEvent) {
@@ -169,9 +165,9 @@
   <div
     class="absolute inset-0 rounded-lg overflow-hidden flex items-center justify-between px-6 transition-all duration-150 {
       deltaX > 0
-        ? 'bg-[var(--badge-green-text)] opacity-100'
+        ? 'bg-emerald-600 opacity-100'
         : deltaX < 0
-          ? 'bg-[var(--badge-red-text)] opacity-100'
+          ? 'bg-rose-600 opacity-100'
           : 'bg-transparent opacity-0 pointer-events-none'
     }"
   >
@@ -218,11 +214,11 @@
           <BookmarkIcon size={14} filled={isSaved} aria-hidden="true" />
         </button>
 
-        <!-- Toggle Seen Button -->
+        <!-- Mark Seen Button -->
         <button
           onclick={handleSeenClick}
-          aria-label={isSeen ? `Unmark ${repo.full_name} as seen` : `Mark ${repo.full_name} as seen`}
-          title={isSeen ? "Mark Unseen (D)" : "Mark Seen (D)"}
+          aria-label="Mark {repo.full_name} as seen"
+          title="Mark Seen (D)"
           class="p-2 sm:p-1.5 min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 rounded border transition-all btn-press active:scale-95 flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)] {
             isSeen
               ? 'bg-[var(--badge-green-bg)] text-[var(--badge-green-text)] border-[var(--badge-green-text)]/30'

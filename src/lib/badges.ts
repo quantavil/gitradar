@@ -24,9 +24,18 @@ const EXPLICIT_MAP: Record<string, number> = {
   zig: 3,      // green
 };
 
+function hashString(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash << 5) - hash + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
 export function getLanguageBadgeStyle(lang: string): string {
   const l = (lang || '').toLowerCase();
-  const idx = EXPLICIT_MAP[l];
-  const family = idx !== undefined ? BADGE_FAMILIES[idx] : BADGE_FAMILIES[3];
+  const idx = EXPLICIT_MAP[l] ?? (hashString(l) % BADGE_FAMILIES.length);
+  const family = BADGE_FAMILIES[idx] || BADGE_FAMILIES[0];
   return `${family.bg} ${family.text}`;
 }

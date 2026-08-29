@@ -1,53 +1,53 @@
 <script lang="ts">
-  import { seenStore } from './seen.svelte';
-  import ConfirmModal from './ConfirmModal.svelte';
-  import RepoItem from './RepoItem.svelte';
-  import {
-    BookmarkIcon,
-    TrashIcon
-  } from './icons';
+  import { seenStore } from './seen.svelte'
+  import ConfirmModal from './ConfirmModal.svelte'
+  import VirtualRepoGrid from './VirtualRepoGrid.svelte'
+  import { sortSaved, type SavedSortOption } from './saved-sort'
+  import type { SavedEntry, TrendshiftRepo } from './types'
+  import { BookmarkIcon, TrashIcon } from './icons'
 
-  let searchQuery = $state('');
-  let sortBy = $state<'newest' | 'stars' | 'growth' | 'name'>('growth');
-  let isConfirmOpen = $state(false);
+  let searchQuery = $state('')
+  let sortBy = $state<SavedSortOption>('growth')
+  let isConfirmOpen = $state(false)
 
-  const savedList = $derived(Array.from(seenStore.saved.values()));
+  const savedList = $derived(Array.from(seenStore.savedEntries.values()))
 
   const filteredAndSortedList = $derived.by(() => {
-    const list = savedList.filter((repo) => {
-      if (!searchQuery.trim()) return true;
-      const q = searchQuery.toLowerCase().trim();
-      const fullNameMatch = repo.full_name?.toLowerCase().includes(q);
-      const descMatch = repo.description?.toLowerCase().includes(q);
-      const langMatch = repo.language?.toLowerCase().includes(q);
-      const tagsMatch = repo.tags?.some((tag) => tag.toLowerCase().includes(q));
-      return fullNameMatch || descMatch || langMatch || tagsMatch;
-    });
+    const list = savedList.filter((entry) => {
+      if (!searchQuery.trim()) return true
+      const q = searchQuery.toLowerCase().trim()
+      const repo = entry.repo
+      const fullNameMatch = repo.full_name?.toLowerCase().includes(q)
+      const descMatch = repo.description?.toLowerCase().includes(q)
+      const langMatch = repo.language?.toLowerCase().includes(q)
+      const tagsMatch = repo.tags?.some((tag) => tag.toLowerCase().includes(q))
+      return fullNameMatch || descMatch || langMatch || tagsMatch
+    })
 
-    return list.sort((a, b) => {
-      if (sortBy === 'stars') return (b.stars_total ?? 0) - (a.stars_total ?? 0);
-      if (sortBy === 'growth') return (b.stars_gained ?? 0) - (a.stars_gained ?? 0);
-      if (sortBy === 'name') return (a.full_name ?? '').localeCompare(b.full_name ?? '');
-      return 0; // Default order
-    });
-  });
+    return sortSaved(list, sortBy)
+  })
 
   function handleClearAllConfirmed() {
-    seenStore.saved = new Map();
-    seenStore.saveSaved();
-    searchQuery = '';
+    void seenStore.clearSaved()
+    searchQuery = ''
   }
 
   function exportJSON() {
-    const blob = new Blob([JSON.stringify(savedList, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const downloadAnchor = document.createElement('a');
-    downloadAnchor.href = url;
-    downloadAnchor.download = `reporadar-saved-${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
-    URL.revokeObjectURL(url);
+    const exportData = savedList.map((entry) => ({
+      ...entry.repo,
+      savedAt: entry.savedAt,
+    }))
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+      type: 'application/json',
+    })
+    const url = URL.createObjectURL(blob)
+    const downloadAnchor = document.createElement('a')
+    downloadAnchor.href = url
+    downloadAnchor.download = `reporadar-saved-${new Date().toISOString().slice(0, 10)}.json`
+    document.body.appendChild(downloadAnchor)
+    downloadAnchor.click()
+    downloadAnchor.remove()
+    URL.revokeObjectURL(url)
   }
 </script>
 
@@ -71,8 +71,9 @@
         aria-label="Sort saved repositories"
         class="px-2.5 py-1.5 bg-[var(--bg-canvas)] text-[var(--text-main)] border border-[var(--border-subtle)] rounded hover:border-[var(--border-strong)] focus:outline-none focus:border-[var(--accent-signal)] font-mono text-xs cursor-pointer shrink-0"
       >
-        <option value="growth">Growth</option>
+        <option value="growth">Daily-equivalent growth</option>
         <option value="stars">Stars</option>
+        <option value="newest">Newest</option>
         <option value="name">Name</option>
       </select>
     </div>
@@ -127,22 +128,18 @@
       </button>
     </div>
   {:else}
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-      {#each filteredAndSortedList as repo (repo.full_name)}
-        <RepoItem {repo}>
-          {#snippet actions()}
-            <button
-              onclick={() => seenStore.removeSaved(repo.full_name)}
-              title="Remove from saved"
-              aria-label="Remove {repo.full_name} from saved"
-              class="p-1.5 rounded text-[var(--text-muted)] hover:text-[var(--badge-red-text)] transition-colors btn-press shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)] min-w-[32px] min-h-[32px] sm:min-w-0 sm:min-h-0 flex items-center justify-center"
-            >
-              <TrashIcon size={14} aria-hidden="true" />
-            </button>
-          {/snippet}
-        </RepoItem>
-      {/each}
-    </div>
+    <VirtualRepoGrid items={filteredAndSortedList}>
+      {#snippet itemActions(repo: TrendshiftRepo)}
+        <button
+          onclick={() => void seenStore.removeSaved(repo.full_name)}
+          title="Remove from saved"
+          aria-label="Remove {repo.full_name} from saved"
+          class="p-1.5 rounded text-[var(--text-muted)] hover:text-[var(--badge-red-text)] transition-colors btn-press shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)] min-w-[32px] min-h-[32px] sm:min-w-0 sm:min-h-0 flex items-center justify-center"
+        >
+          <TrashIcon size={14} aria-hidden="true" />
+        </button>
+      {/snippet}
+    </VirtualRepoGrid>
   {/if}
 </div>
 

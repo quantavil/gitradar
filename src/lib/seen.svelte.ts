@@ -1,353 +1,464 @@
-import { Debouncer } from '@tanstack/pacer';
-import type { TrendshiftRepo } from './types';
+import { normalizeRepo } from './repo-schema'
+import { parseHistoryImport } from './history-import'
+import {
+  getBrowserStorage,
+  readBooleanPreference,
+  writeBooleanPreference,
+} from './storage/preferences'
+import { migrateLegacyStorage, RepoDatabase } from './storage/repo-db'
+import type { SavedEntry, SeenEntry, TrendshiftRepo } from './types'
 
-const MAX_SEEN_ITEMS = 2000;
+export interface RepoPersistence {
+  getAllSeen(): Promise<SeenEntry[]>
+  getAllSaved(): Promise<SavedEntry[]>
+  putSeen(entry: SeenEntry): Promise<void>
+  deleteSeen(key: string): Promise<void>
+  replaceSeen(entries: SeenEntry[]): Promise<void>
+  clearSeen(): Promise<void>
+  putSaved(entry: SavedEntry): Promise<void>
+  deleteSaved(key: string): Promise<void>
+  replaceSaved(entries: SavedEntry[]): Promise<void>
+  clearSaved(): Promise<void>
+}
 
+type RepoStateMessage =
+  | { type: 'seen-put'; entry: SeenEntry }
+  | { type: 'seen-delete'; key: string }
+  | { type: 'seen-replace'; entries: SeenEntry[] }
+  | { type: 'saved-put'; entry: SavedEntry }
+  | { type: 'saved-delete'; key: string }
+  | { type: 'saved-clear' }
+
+const CHANNEL_NAME = 'repo-radar-sync'
+
+function createStubRepo(fullName: string): TrendshiftRepo {
+  return {
+    rank: 0,
+    score: 0,
+    full_name: fullName,
+    github_url: 'https://github.com/' + fullName,
+    description: '',
+    language: '',
+    stars_total: 0,
+    stars_gained: 0,
+    forks_total: 0,
+    forks_gained: 0,
+    created_at: '',
+    tags: [],
+    social_mention_platforms: [],
+  }
+}
 
 export class SeenStore {
-  seenDetails = $state<Map<string, TrendshiftRepo>>(new Map());
-  saved = $state<Map<string, TrendshiftRepo>>(new Map());
+  seenEntries = $state<Map<string, SeenEntry>>(new Map())
+  savedEntries = $state<Map<string, SavedEntry>>(new Map())
+  ready = $state(false)
+  persistenceError = $state<string | null>(null)
 
-  private _autoSeenOnScroll = $state(true);
-  private _swipeGesturesEnabled = $state(true);
+  private _autoSeenOnScroll = $state(
+    readBooleanPreference(getBrowserStorage(), 'auto_seen_on_scroll', true),
+  )
+  private _swipeGesturesEnabled = $state(
+    readBooleanPreference(getBrowserStorage(), 'swipe_gestures_enabled', true),
+  )
+
+  private persistence: RepoPersistence | null = null
+  private now: () => number
+  private channel: BroadcastChannel | null = null
+
+  constructor(
+    persistence?: RepoPersistence,
+    now: () => number = () => Date.now(),
+    channelFactory?: (name: string) => BroadcastChannel | null,
+  ) {
+    this.persistence = persistence ?? null
+    this.now = now
+
+    if (channelFactory) {
+      this.channel = channelFactory(CHANNEL_NAME)
+    } else if (typeof BroadcastChannel !== 'undefined') {
+      try {
+        this.channel = new BroadcastChannel(CHANNEL_NAME)
+      } catch {
+        this.channel = null
+      }
+    }
+
+    if (this.channel) {
+      this.channel.onmessage = (event: MessageEvent<RepoStateMessage>) => {
+        this.handleBroadcastMessage(event.data)
+      }
+    }
+  }
 
   get autoSeenOnScroll(): boolean {
-    return this._autoSeenOnScroll;
+    return this._autoSeenOnScroll
   }
 
   set autoSeenOnScroll(value: boolean) {
-    this._autoSeenOnScroll = value;
-    if (typeof window !== 'undefined') {
-      try {
-        localStorage.setItem('auto_seen_on_scroll', JSON.stringify(value));
-      } catch (err) {
-        console.error('Failed to save auto_seen_on_scroll:', err);
-      }
-    }
+    this._autoSeenOnScroll = value
+    writeBooleanPreference(getBrowserStorage(), 'auto_seen_on_scroll', value)
   }
 
   get swipeGesturesEnabled(): boolean {
-    return this._swipeGesturesEnabled;
+    return this._swipeGesturesEnabled
   }
 
   set swipeGesturesEnabled(value: boolean) {
-    this._swipeGesturesEnabled = value;
-    if (typeof window !== 'undefined') {
-      try {
-        localStorage.setItem('swipe_gestures_enabled', JSON.stringify(value));
-      } catch (err) {
-        console.error('Failed to save swipe_gestures_enabled:', err);
-      }
+    this._swipeGesturesEnabled = value
+    writeBooleanPreference(getBrowserStorage(), 'swipe_gestures_enabled', value)
+  }
+
+  get seenDetails(): Map<string, TrendshiftRepo> {
+    const map = new Map<string, TrendshiftRepo>()
+    for (const [k, v] of this.seenEntries) {
+      map.set(k, v.repo)
     }
+    return map
+  }
+
+  get saved(): Map<string, TrendshiftRepo> {
+    const map = new Map<string, TrendshiftRepo>()
+    for (const [k, v] of this.savedEntries) {
+      map.set(k, v.repo)
+    }
+    return map
   }
 
   get seenKeys(): string[] {
-    return Array.from(this.seenDetails.keys());
+    return Array.from(this.seenEntries.keys())
   }
 
   get seenSize(): number {
-    return this.seenDetails.size;
-  }
-
-  private debouncer: Debouncer<() => void>;
-
-  constructor() {
-    this.debouncer = new Debouncer(
-      () => this.saveSeenSync(),
-      { wait: 300 }
-    );
-
-    this.loadFromStorage();
-
-    if (typeof window !== 'undefined') {
-      const flushSave = () => this.debouncer.flush();
-      window.addEventListener('beforeunload', flushSave);
-      window.addEventListener('pagehide', flushSave);
-      document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'hidden') flushSave();
-      });
-    }
+    return this.seenEntries.size
   }
 
   private normalizeKey(key: string): string {
-    return (key || '').trim().toLowerCase();
+    return (key || '').trim().toLowerCase()
   }
 
-  createStubRepo(fullName: string): TrendshiftRepo {
-    const parts = fullName.split('/');
-    return {
-      rank: 0,
-      score: 0,
-      full_name: fullName,
-      github_url: `https://github.com/${fullName}`,
-      description: '',
-      language: '',
-      stars_total: 0,
-      stars_gained: 0,
-      forks_total: 0,
-      forks_gained: 0,
-      created_at: '',
-      tags: [],
-      social_mention_platforms: []
-    };
+  private broadcast(message: RepoStateMessage) {
+    if (this.channel) {
+      try {
+        this.channel.postMessage(message)
+      } catch {}
+    }
   }
 
-  private saveSeenSync() {
-    if (typeof window === 'undefined') return;
-    try {
-      const entries = Array.from(this.seenDetails.entries());
-      localStorage.setItem('seen_details', JSON.stringify(entries));
-      localStorage.setItem('seen_repos', JSON.stringify(Array.from(this.seenDetails.keys())));
-    } catch (err) {
-      console.error('Failed to save seen_details to localStorage:', err);
-      // QuotaExceededError safety: prune oldest 20% if quota hit
-      if (err instanceof DOMException && (err.name === 'QuotaExceededError' || err.code === 22)) {
-        try {
-          const keys = Array.from(this.seenDetails.keys());
-          const toRemove = keys.slice(0, Math.floor(keys.length * 0.2));
-          const nextDetails = new Map(this.seenDetails);
-          for (const k of toRemove) {
-            nextDetails.delete(k);
-          }
-          this.seenDetails = nextDetails;
-          localStorage.setItem('seen_details', JSON.stringify(Array.from(this.seenDetails.entries())));
-          localStorage.setItem('seen_repos', JSON.stringify(Array.from(this.seenDetails.keys())));
-        } catch (retryErr) {
-          console.error('Failed to save after pruning:', retryErr);
+  private handleBroadcastMessage(data: RepoStateMessage) {
+    if (!data || typeof data !== 'object') return
+
+    switch (data.type) {
+      case 'seen-put': {
+        const next = new Map(this.seenEntries)
+        next.set(data.entry.key, data.entry)
+        this.seenEntries = next
+        break
+      }
+      case 'seen-delete': {
+        if (this.seenEntries.has(data.key)) {
+          const next = new Map(this.seenEntries)
+          next.delete(data.key)
+          this.seenEntries = next
         }
+        break
+      }
+      case 'seen-replace': {
+        const next = new Map<string, SeenEntry>()
+        for (const e of data.entries) next.set(e.key, e)
+        this.seenEntries = next
+        break
+      }
+      case 'saved-put': {
+        const next = new Map(this.savedEntries)
+        next.set(data.entry.key, data.entry)
+        this.savedEntries = next
+        break
+      }
+      case 'saved-delete': {
+        if (this.savedEntries.has(data.key)) {
+          const next = new Map(this.savedEntries)
+          next.delete(data.key)
+          this.savedEntries = next
+        }
+        break
+      }
+      case 'saved-clear': {
+        this.savedEntries = new Map()
+        break
       }
     }
   }
 
-  private loadFromStorage() {
-    if (typeof window === 'undefined') return;
-
+  async init(): Promise<void> {
     try {
-      const rawSeenDetails = localStorage.getItem('seen_details');
-      const detailsMap = new Map<string, TrendshiftRepo>();
+      if (!this.persistence && typeof indexedDB !== 'undefined') {
+        const db = await RepoDatabase.open()
+        await migrateLegacyStorage(db, getBrowserStorage())
+        this.persistence = db
+      }
 
-      if (rawSeenDetails) {
-        const parsed = JSON.parse(rawSeenDetails);
-        if (Array.isArray(parsed)) {
-          for (const item of parsed) {
-            if (Array.isArray(item) && item.length >= 2 && item[0] && item[1]) {
-              const [k, v] = item;
-              detailsMap.set(this.normalizeKey(k), v);
-            }
-          }
+      if (this.persistence) {
+        const [seenList, savedList] = await Promise.all([
+          this.persistence.getAllSeen(),
+          this.persistence.getAllSaved(),
+        ])
+
+        const seenMap = new Map<string, SeenEntry>()
+        for (const entry of seenList) {
+          seenMap.set(entry.key, entry)
         }
-      }
+        this.seenEntries = seenMap
 
-      // Backward compatibility fallback if seen_repos exists but seen_details was empty
-      if (detailsMap.size === 0) {
-        const rawSeen = localStorage.getItem('seen_repos');
-        if (rawSeen) {
-          const parsed = JSON.parse(rawSeen);
-          if (Array.isArray(parsed)) {
-            for (const item of parsed) {
-              if (typeof item === 'string' && item.trim()) {
-                const norm = this.normalizeKey(item);
-                detailsMap.set(norm, this.createStubRepo(item));
-              }
-            }
-          }
+        const savedMap = new Map<string, SavedEntry>()
+        for (const entry of savedList) {
+          savedMap.set(entry.key, entry)
         }
+        this.savedEntries = savedMap
       }
-
-      this.seenDetails = detailsMap;
-
-      const rawSaved = localStorage.getItem('saved_repos');
-      if (rawSaved) {
-        const parsed = JSON.parse(rawSaved);
-        if (Array.isArray(parsed)) {
-          const savedMap = new Map<string, TrendshiftRepo>();
-          for (const item of parsed) {
-            if (Array.isArray(item) && item.length >= 2 && item[0] && item[1]) {
-              const [k, v] = item;
-              savedMap.set(this.normalizeKey(k), v);
-            }
-          }
-          this.saved = savedMap;
-        }
-      }
-
-      const rawAutoSeen = localStorage.getItem('auto_seen_on_scroll');
-      if (rawAutoSeen !== null) {
-        this._autoSeenOnScroll = JSON.parse(rawAutoSeen);
-      }
-
-      const rawSwipe = localStorage.getItem('swipe_gestures_enabled');
-      if (rawSwipe !== null) {
-        this._swipeGesturesEnabled = JSON.parse(rawSwipe);
-      }
-    } catch (err) {
-      console.error('Failed to parse storage:', err);
+    } catch (err: unknown) {
+      this.persistenceError =
+        err instanceof Error ? err.message : 'Storage initialization failed'
+    } finally {
+      this.ready = true
     }
   }
 
   isSeen(fullName: string): boolean {
-    return this.seenDetails.has(this.normalizeKey(fullName));
+    return this.seenEntries.has(this.normalizeKey(fullName))
   }
 
-  setSeenDetailsBatch(items: Array<{ fullName: string; repo: TrendshiftRepo }>) {
-    if (items.length === 0) return;
-    let changed = false;
-    const nextDetails = new Map(this.seenDetails);
+  isSaved(fullName: string): boolean {
+    return this.savedEntries.has(this.normalizeKey(fullName))
+  }
 
-    for (const { fullName, repo } of items) {
-      const key = this.normalizeKey(fullName);
-      if (!nextDetails.has(key)) {
-        nextDetails.set(key, repo);
-        changed = true;
+  async markSeen(repoOrName: string | TrendshiftRepo): Promise<void> {
+    const isObj = typeof repoOrName !== 'string'
+    const fullName = isObj ? repoOrName.full_name : repoOrName
+    const key = this.normalizeKey(fullName)
+    if (!key) return
+
+    const normalizedRepo = isObj
+      ? (normalizeRepo(repoOrName) ?? createStubRepo(fullName))
+      : (this.seenEntries.get(key)?.repo ?? createStubRepo(fullName))
+
+    const existing = this.seenEntries.get(key)
+    const entry: SeenEntry = {
+      key,
+      repo: normalizedRepo,
+      seenAt: existing ? existing.seenAt : this.now(),
+    }
+
+    const nextSeen = new Map(this.seenEntries)
+    nextSeen.set(key, entry)
+    this.seenEntries = nextSeen
+
+    this.broadcast({ type: 'seen-put', entry })
+
+    if (this.persistence) {
+      try {
+        await this.persistence.putSeen(entry)
+        this.persistenceError = null
+      } catch (err: unknown) {
+        this.persistenceError =
+          err instanceof Error ? err.message : 'Failed to persist seen repository'
+      }
+    }
+  }
+
+  async unsee(fullName: string): Promise<void> {
+    const key = this.normalizeKey(fullName)
+    if (!this.seenEntries.has(key)) return
+
+    const nextSeen = new Map(this.seenEntries)
+    nextSeen.delete(key)
+    this.seenEntries = nextSeen
+
+    this.broadcast({ type: 'seen-delete', key })
+
+    if (this.persistence) {
+      try {
+        await this.persistence.deleteSeen(key)
+        this.persistenceError = null
+      } catch (err: unknown) {
+        this.persistenceError =
+          err instanceof Error ? err.message : 'Failed to delete seen repository'
+      }
+    }
+  }
+
+  async resetSeen(): Promise<void> {
+    this.seenEntries = new Map()
+    this.broadcast({ type: 'seen-replace', entries: [] })
+
+    if (this.persistence) {
+      try {
+        await this.persistence.clearSeen()
+        this.persistenceError = null
+      } catch (err: unknown) {
+        this.persistenceError =
+          err instanceof Error ? err.message : 'Failed to clear seen repositories'
+      }
+    }
+  }
+
+  async enrichSeenDetails(repos: TrendshiftRepo[]): Promise<void> {
+    let changed = false
+    const nextSeen = new Map(this.seenEntries)
+    const updates: SeenEntry[] = []
+
+    for (const repo of repos) {
+      const key = this.normalizeKey(repo.full_name)
+      const existing = nextSeen.get(key)
+      if (existing) {
+        const needsEnrichment =
+          !existing.repo.description &&
+          (repo.description || repo.stars_total > 0 || repo.tags.length > 0)
+        if (needsEnrichment) {
+          const updatedEntry: SeenEntry = {
+            ...existing,
+            repo: { ...repo },
+          }
+          nextSeen.set(key, updatedEntry)
+          updates.push(updatedEntry)
+          changed = true
+        }
       }
     }
 
     if (changed) {
-      this.seenDetails = nextDetails;
-      this.debouncer.maybeExecute();
-    }
-  }
-
-  markSeen(repoOrName: string | TrendshiftRepo) {
-    const isObj = typeof repoOrName !== 'string';
-    const fullName = isObj ? repoOrName.full_name : repoOrName;
-    const key = this.normalizeKey(fullName);
-    const repoObj: TrendshiftRepo = isObj ? repoOrName : (this.seenDetails.get(key) || this.createStubRepo(fullName));
-
-    const nextDetails = new Map(this.seenDetails);
-
-    // Delete first if exists to reset FIFO insertion position to end of Map
-    if (nextDetails.has(key)) {
-      nextDetails.delete(key);
-    } else if (nextDetails.size >= MAX_SEEN_ITEMS) {
-      const firstKey = nextDetails.keys().next().value;
-      if (firstKey) {
-        nextDetails.delete(firstKey);
-      }
-    }
-
-    nextDetails.set(key, repoObj);
-    this.seenDetails = nextDetails;
-    this.debouncer.maybeExecute();
-  }
-
-  toggleSeen(repoOrName: string | TrendshiftRepo) {
-    const isObj = typeof repoOrName !== 'string';
-    const fullName = isObj ? repoOrName.full_name : repoOrName;
-    const key = this.normalizeKey(fullName);
-
-    const nextDetails = new Map(this.seenDetails);
-
-    if (nextDetails.has(key)) {
-      nextDetails.delete(key);
-    } else {
-      if (nextDetails.size >= MAX_SEEN_ITEMS) {
-        const firstKey = nextDetails.keys().next().value;
-        if (firstKey) {
-          nextDetails.delete(firstKey);
+      this.seenEntries = nextSeen
+      if (this.persistence) {
+        try {
+          for (const entry of updates) {
+            await this.persistence.putSeen(entry)
+          }
+          this.persistenceError = null
+        } catch (err: unknown) {
+          this.persistenceError =
+            err instanceof Error ? err.message : 'Failed to persist enriched seen repos'
         }
       }
-      const repoObj: TrendshiftRepo = isObj ? repoOrName : (this.seenDetails.get(key) || this.createStubRepo(fullName));
-      nextDetails.set(key, repoObj);
-    }
-
-    this.seenDetails = nextDetails;
-    this.debouncer.maybeExecute();
-  }
-
-  unsee(fullName: string) {
-    const key = this.normalizeKey(fullName);
-    if (this.seenDetails.has(key)) {
-      const nextDetails = new Map(this.seenDetails);
-      nextDetails.delete(key);
-      this.seenDetails = nextDetails;
-      this.debouncer.maybeExecute();
     }
   }
 
-  resetSeen() {
-    this.debouncer.cancel();
-    this.seenDetails = new Map();
-    if (typeof window !== 'undefined') {
-      try {
-        localStorage.removeItem('seen_repos');
-        localStorage.removeItem('seen_details');
-      } catch (err) {
-        console.error('Failed to clear seen_repos:', err);
+  async toggleSave(repo: TrendshiftRepo): Promise<void> {
+    const key = this.normalizeKey(repo.full_name)
+    if (this.savedEntries.has(key)) {
+      await this.removeSaved(repo.full_name)
+    } else {
+      const normalized = normalizeRepo(repo) ?? createStubRepo(repo.full_name)
+      const entry: SavedEntry = {
+        key,
+        repo: normalized,
+        savedAt: this.now(),
+      }
+      const nextSaved = new Map(this.savedEntries)
+      nextSaved.set(key, entry)
+      this.savedEntries = nextSaved
+
+      this.broadcast({ type: 'saved-put', entry })
+
+      if (this.persistence) {
+        try {
+          await this.persistence.putSaved(entry)
+          this.persistenceError = null
+        } catch (err: unknown) {
+          this.persistenceError =
+            err instanceof Error ? err.message : 'Failed to persist saved repository'
+        }
       }
     }
   }
 
-  isSaved(fullName: string): boolean {
-    return this.saved.has(this.normalizeKey(fullName));
-  }
+  async removeSaved(fullName: string): Promise<void> {
+    const key = this.normalizeKey(fullName)
+    if (!this.savedEntries.has(key)) return
 
-  toggleSave(repo: TrendshiftRepo) {
-    const key = this.normalizeKey(repo.full_name);
-    const nextSaved = new Map(this.saved);
-    if (nextSaved.has(key)) {
-      nextSaved.delete(key);
-    } else {
-      nextSaved.set(key, repo);
-    }
-    this.saved = nextSaved;
-    this.saveSaved();
-  }
+    const nextSaved = new Map(this.savedEntries)
+    nextSaved.delete(key)
+    this.savedEntries = nextSaved
 
-  removeSaved(fullName: string) {
-    const key = this.normalizeKey(fullName);
-    if (this.saved.has(key)) {
-      const nextSaved = new Map(this.saved);
-      nextSaved.delete(key);
-      this.saved = nextSaved;
-      this.saveSaved();
+    this.broadcast({ type: 'saved-delete', key })
+
+    if (this.persistence) {
+      try {
+        await this.persistence.deleteSaved(key)
+        this.persistenceError = null
+      } catch (err: unknown) {
+        this.persistenceError =
+          err instanceof Error ? err.message : 'Failed to delete saved repository'
+      }
     }
   }
 
-  saveSaved() {
-    if (typeof window === 'undefined') return;
-    try {
-      localStorage.setItem('saved_repos', JSON.stringify(Array.from(this.saved.entries())));
-    } catch (err) {
-      console.error('Failed to save saved_repos to localStorage:', err);
+  async clearSaved(): Promise<void> {
+    this.savedEntries = new Map()
+    this.broadcast({ type: 'saved-clear' })
+
+    if (this.persistence) {
+      try {
+        await this.persistence.clearSaved()
+        this.persistenceError = null
+      } catch (err: unknown) {
+        this.persistenceError =
+          err instanceof Error ? err.message : 'Failed to clear saved repositories'
+      }
     }
+  }
+
+  createStubRepo(fullName: string): TrendshiftRepo {
+    return createStubRepo(fullName)
+  }
+
+  async importHistoryJSON(jsonStr: string): Promise<{
+    success: boolean
+    count: number
+    error?: string
+  }> {
+    const parseResult = parseHistoryImport(jsonStr, this.now)
+    if (!parseResult.ok) {
+      return { success: false, count: 0, error: parseResult.error }
+    }
+
+    if (this.persistence) {
+      try {
+        await this.persistence.replaceSeen(parseResult.entries)
+        this.persistenceError = null
+      } catch (err: unknown) {
+        const msg =
+          err instanceof Error
+            ? err.message
+            : 'Failed to persist imported history'
+        this.persistenceError = msg
+        return { success: false, count: 0, error: msg }
+      }
+    }
+
+    const next = new Map<string, SeenEntry>()
+    for (const e of parseResult.entries) next.set(e.key, e)
+    this.seenEntries = next
+    this.broadcast({ type: 'seen-replace', entries: parseResult.entries })
+
+    return { success: true, count: parseResult.count }
   }
 
   exportHistoryJSON(): string {
-    const entries = Array.from(this.seenDetails.entries());
-    return JSON.stringify(entries, null, 2);
+    const entries = Array.from(this.seenEntries.values()).map((e) => [
+      e.key,
+      e.repo,
+    ])
+    return JSON.stringify(entries, null, 2)
   }
 
-  importHistoryJSON(jsonStr: string): { success: boolean; count: number; error?: string } {
-    try {
-      const parsed = JSON.parse(jsonStr);
-      const newMap = new Map<string, TrendshiftRepo>();
-
-      if (Array.isArray(parsed)) {
-        for (const item of parsed) {
-          if (Array.isArray(item) && item.length >= 2 && item[0] && item[1]) {
-            const [k, v] = item;
-            newMap.set(this.normalizeKey(k), v);
-          } else if (typeof item === 'string' && item.trim()) {
-            const norm = this.normalizeKey(item);
-            newMap.set(norm, this.createStubRepo(item));
-          } else if (item && typeof item === 'object' && item.full_name) {
-            const norm = this.normalizeKey(item.full_name);
-            newMap.set(norm, item);
-          }
-        }
-      } else {
-        return { success: false, count: 0, error: 'Invalid JSON format. Expected an array of history entries.' };
-      }
-
-      this.debouncer.cancel();
-      this.seenDetails = newMap;
-      this.saveSeenSync();
-      return { success: true, count: newMap.size };
-    } catch (err: any) {
-      return { success: false, count: 0, error: err?.message || 'Failed to parse JSON file' };
+  destroy(): void {
+    if (this.channel) {
+      try {
+        this.channel.close()
+      } catch {}
+      this.channel = null
     }
   }
 }
 
-export const seenStore = new SeenStore();
+export const seenStore = new SeenStore()

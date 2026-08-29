@@ -1,5 +1,7 @@
 <script lang="ts">
-  let { size = 16, class: className = '', ...restProps } = $props<{ size?: number; class?: string; [key: string]: any }>();
+  import type { IconProps } from './types'
+
+  let { size = 16, class: className = '', ...restProps }: IconProps = $props()
 </script>
 
 <svg
@@ -8,7 +10,7 @@
   viewBox="0 0 24 24"
   fill="none"
   stroke="currentColor"
-  stroke-width="1.75"
+  stroke-width="2"
   stroke-linecap="round"
   stroke-linejoin="round"
   class={className}

@@ -2,29 +2,35 @@
 
 ## Project Overview
 - **Name**: RepoRadar — Zero-duplicate GitHub trending repository discovery web app.
-- **Tech Stack**: Svelte 5 Runes, Bun, Vite 8, Tailwind CSS v4, `@tanstack/hotkeys`, `@tanstack/pacer`.
+- **Tech Stack**: Svelte 5 Runes, Bun, Vite 8, Tailwind CSS v4, `@tanstack/hotkeys`, `@tanstack/svelte-virtual`, Playwright Chromium Vitest.
 - **Data Source**: Trendshift Static CDN API (`https://quantavil.github.io/trendshift/data/`).
 
 ---
 
 ## Key Architecture & Components
-- `src/lib/seen.svelte.ts`: `SeenStore` rune class managing localStorage persistence for `seenDetails` Map (2000-item FIFO quota) and saved Map, with `@tanstack/pacer` debouncer and visibility change listeners.
-- `src/lib/api.svelte.ts`: CDN fetcher with multi-timeframe fallback chain (`daily` ➔ `weekly` ➔ `monthly`), intra-session deduplication, and batched `seenDetails` updates.
-- `src/lib/RepoItem.svelte`: Shared canonical card component with clean single-border utilitarian styling, eliminating duplicate markup across Feed, Saved, and History views.
-- `src/lib/RepoCard.svelte`: Accessible feed card wrapper with connected DOM scroll-past auto-seen observer (`bottom < 56px`), mobile touch swipe gestures (`touch-action: pan-y`), and keyboard focus indicators.
-- `src/lib/ToggleSwitch.svelte`: Reusable toggle switch component.
-- `src/lib/SavedView.svelte`: Saved bookmarks view with search filter, uniform 2-column grid, direct array sort, blob JSON export, and clear all confirmation modal.
-- `src/lib/HistoryView.svelte`: Seen history view with search filter, restore action, and clear history floating action bar.
-- `src/lib/SettingsView.svelte`: Appearance theme toggle, auto-seen toggle, touch swipe toggle, and keyboard shortcuts reference.
-- `src/lib/ConfirmModal.svelte`: Accessible modal dialog with focus trap, focus restoration, and ESC support.
-- `src/lib/LanguageSelect.svelte`: Custom combobox dropdown with `aria-activedescendant` and full keyboard navigation.
-- `src/lib/Navbar.svelte`: Sticky top edge-to-edge navigation header with brand logo and view icon buttons.
-- `src/lib/hotkeys.ts`: `@tanstack/hotkeys` keyboard shortcut bindings (<kbd>1</kbd>-<kbd>4</kbd>, <kbd>J</kbd>, <kbd>K</kbd>, <kbd>S</kbd>, <kbd>D</kbd>, <kbd>?</kbd>, <kbd>Esc</kbd>) with modal open detection.
+- `src/lib/storage/repo-db.ts`: IndexedDB transactional persistence with atomic schema migration from legacy localStorage keys.
+- `src/lib/storage/preferences.ts`: Guarded preference storage adapter for UI switches and theme.
+- `src/lib/seen.svelte.ts`: `SeenStore` rune class managing IndexedDB persistence, in-memory `Map<string, SeenEntry>` and `Map<string, SavedEntry>`, and cross-tab `BroadcastChannel` synchronization.
+- `src/lib/trendshift-client.ts`: Concurrent CDN catalog client with timeout, source priority deduplication, and timeframe availability tracking.
+- `src/lib/api.svelte.ts`: `RepoFeed` orchestrator maintaining raw catalog and derived unseen/filtered repos.
+- `src/lib/VirtualFeed.svelte`: Window virtualizer feed for single-column continuous discovery with dynamic item height measurement.
+- `src/lib/VirtualRepoGrid.svelte`: 2-column (desktop) / 1-column (mobile) window virtualizer for Saved and History collections.
+- `src/lib/saved-sort.ts`: Daily-equivalent star growth calculation and multi-criteria sorting for saved bookmarks.
+- `src/lib/history-import.ts`: Atomic, validated import parser supporting all legacy history shapes up to 2 MiB.
+- `src/lib/RepoItem.svelte`: Shared canonical card component with single-border utilitarian styling and sanitized GitHub URLs.
+- `src/lib/RepoCard.svelte`: Swipeable card wrapper with scroll-past intersection observer.
+- `src/lib/ConfirmModal.svelte`: Native `<dialog>` modal with `inert` backdrop trapping, focus trap, and Escape handling.
+- `src/lib/LanguageSelect.svelte`: Combobox dropdown with `aria-activedescendant`, Home/End keys, and prefix typeahead.
+- `src/lib/Navbar.svelte`: Sticky navigation header with `<nav aria-label="Primary">` and `aria-current="page"`.
+- `src/lib/hotkeys.ts`: Keyboard shortcut bindings (<kbd>1</kbd>–<kbd>4</kbd>, <kbd>Shift+?</kbd>, <kbd>J</kbd>, <kbd>K</kbd>, <kbd>S</kbd>, <kbd>D</kbd>, <kbd>U</kbd>, <kbd>Esc</kbd>) with modal and input guards.
 
 ---
 
 ## Blunders Log
-- **Svelte 5 Set/Map Reactivity**: Mutating Svelte 5 `$state(new Set())` or `$state(new Map())` in-place does NOT notify `$derived` listeners. Reference must be reassigned (`this.seenDetails = new Map(this.seenDetails)`).
+- **Svelte 5 Virtualizer Effect Loop**: Accessing and setting options on `$virtualizer` inside `$effect` creates an infinite reactive loop. Fix: wrap `virtualizer.setOptions` inside `untrack(() => ...)`.
+- **Svelte 5 Set/Map Reactivity**: Mutating Svelte 5 `$state(new Set())` or `$state(new Map())` in-place does NOT notify `$derived` listeners. Reference must be reassigned (`this.seenEntries = new Map(...)`).
+- **Vitest Browser Dynamic Reload Crash**: `@tanstack/svelte-virtual` requires explicit `optimizeDeps.include` in `vitest.config.ts` to prevent dynamic reload errors during headless browser tests.
+- **EventTarget vs Element closest**: `KeyboardEvent.target` can be `window` or `Document` without `.closest()`. Fix: check `target && typeof target.closest === 'function'`.
 - **Storage Key Normalization & Metadata**: `markSeen` with string keys omitted `seenDetails` entries, causing empty history metadata. Fixed by storing full `TrendshiftRepo` objects and normalizing keys on storage load.
 - **Mobile Touch Gesture Collision**: Swiping cards horizontally without `style="touch-action: pan-y"` collided with browser vertical scrolling. Fixed by applying `touch-action: pan-y` and `e.preventDefault()` during active horizontal swipe.
 - **Explicit Dismiss State Flip**: `handleExplicitDismiss` called `toggleSeen` instead of `markSeen`, un-marking previously seen repos when dismissed. Fixed by explicitly calling `markSeen(repo)`.
@@ -36,9 +42,13 @@
 - **Combobox ARIA Role**: `aria-activedescendant` on `<button>` without `role="combobox"` triggered Svelte 5 a11y compiler warnings. Fixed by adding `role="combobox"`.
 - **Listbox Hotkey Leak**: Global hotkeys triggered when custom combobox listboxes were open. Fixed by adding `[role="listbox"]` to modal detector in `hotkeys.ts`.
 - **Feed Truncation at 10 Unseen Repos**: `api.svelte.ts` broke the timeframe loop as soon as `collected.length >= 10`, cutting off the feed prematurely. Fixed by removing the artificial break to sweep all available unseen repos across `daily`, `weekly`, and `monthly` timeframes.
+- **Card Focus Selector Failure**: `scrollFocusedIntoView` queried `[role="article"]`, but `<article>` lacked explicit role attribute, returning `null`. Fixed by adding `role="article"` and querying `article`.
+- **Modal Escape Event Collision**: `hotkeys.ts` fired global `actions.onEscape` when modals were open, unexpectedly switching view to feed. Fixed by delegating Escape to the open modal.
+- **History View Order**: `seenStore.seenDetails` keys were rendered oldest-first. Fixed by reversing the array so newest seen repos render first.
 
 ---
 
 ## File Structure & Map
-- `src/lib/icons/`: Reusable SVG icon components.
+- `src/lib/storage/`: IndexedDB repository storage and synchronous preferences helpers.
+- `src/lib/icons/`: Reusable, typed SVG icon components and index exports.
 - `src/app.css`: Tailwind v4 base styles, Geist typography, physical `<kbd>` styling, micro-animations, minimal scrollbars.

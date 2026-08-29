@@ -1,104 +1,139 @@
 <script lang="ts">
-  import { LANGUAGE_OPTIONS, type LanguageOption } from './types';
-  import { ChevronDownIcon, CheckIcon } from './icons';
+  import { LANGUAGE_OPTIONS, type LanguageOption } from './types'
+  import { ChevronDownIcon, CheckIcon } from './icons'
 
   let {
     value = 'all',
-    onChange
+    onChange,
   }: {
-    value?: LanguageOption;
-    onChange?: (selected: LanguageOption) => void;
-  } = $props();
+    value?: LanguageOption
+    onChange?: (selected: LanguageOption) => void
+  } = $props()
 
-  let isOpen = $state(false);
-  let highlightedIndex = $state(0);
-  let triggerRef = $state<HTMLButtonElement | null>(null);
-  let containerRef = $state<HTMLDivElement | null>(null);
-  let listboxRef = $state<HTMLUListElement | null>(null);
+  let isOpen = $state(false)
+  let highlightedIndex = $state(0)
+  let triggerRef = $state<HTMLButtonElement | null>(null)
+  let containerRef = $state<HTMLDivElement | null>(null)
+  let listboxRef = $state<HTMLUListElement | null>(null)
+
+  let typeaheadBuffer = ''
+  let typeaheadTimer: ReturnType<typeof setTimeout> | null = null
 
   const selectedOption = $derived(
-    LANGUAGE_OPTIONS.find((opt) => opt.id === value) || LANGUAGE_OPTIONS[0]
-  );
+    LANGUAGE_OPTIONS.find((opt) => opt.id === value) || LANGUAGE_OPTIONS[0],
+  )
 
   function toggleOpen() {
-    isOpen = !isOpen;
+    isOpen = !isOpen
     if (isOpen) {
-      const idx = LANGUAGE_OPTIONS.findIndex((opt) => opt.id === value);
-      highlightedIndex = idx >= 0 ? idx : 0;
+      const idx = LANGUAGE_OPTIONS.findIndex((opt) => opt.id === value)
+      highlightedIndex = idx >= 0 ? idx : 0
+      setTimeout(() => scrollToHighlighted(), 10)
     }
   }
 
   function close() {
-    isOpen = false;
+    isOpen = false
+    typeaheadBuffer = ''
   }
 
   function selectOption(optionId: LanguageOption) {
     if (onChange) {
-      onChange(optionId);
+      onChange(optionId)
     }
-    close();
-    triggerRef?.focus();
+    close()
+    triggerRef?.focus()
   }
 
   function handleKeydown(e: KeyboardEvent) {
     if (!isOpen) {
-      if (['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(e.key)) {
-        e.preventDefault();
-        toggleOpen();
+      if (['ArrowDown', 'ArrowUp', 'Enter', ' ', 'Home', 'End'].includes(e.key)) {
+        e.preventDefault()
+        toggleOpen()
       }
-      return;
+      return
+    }
+
+    if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      e.preventDefault()
+      typeaheadBuffer += e.key.toLowerCase()
+      if (typeaheadTimer) clearTimeout(typeaheadTimer)
+      typeaheadTimer = setTimeout(() => {
+        typeaheadBuffer = ''
+      }, 500)
+
+      const matchIdx = LANGUAGE_OPTIONS.findIndex((opt) =>
+        opt.label.toLowerCase().startsWith(typeaheadBuffer),
+      )
+      if (matchIdx >= 0) {
+        highlightedIndex = matchIdx
+        scrollToHighlighted()
+      }
+      return
     }
 
     switch (e.key) {
+      case 'Home':
+        e.preventDefault()
+        highlightedIndex = 0
+        scrollToHighlighted()
+        break
+      case 'End':
+        e.preventDefault()
+        highlightedIndex = LANGUAGE_OPTIONS.length - 1
+        scrollToHighlighted()
+        break
       case 'ArrowDown':
-        e.preventDefault();
-        highlightedIndex = (highlightedIndex + 1) % LANGUAGE_OPTIONS.length;
-        scrollToHighlighted();
-        break;
+        e.preventDefault()
+        highlightedIndex = (highlightedIndex + 1) % LANGUAGE_OPTIONS.length
+        scrollToHighlighted()
+        break
       case 'ArrowUp':
-        e.preventDefault();
-        highlightedIndex = (highlightedIndex - 1 + LANGUAGE_OPTIONS.length) % LANGUAGE_OPTIONS.length;
-        scrollToHighlighted();
-        break;
+        e.preventDefault()
+        highlightedIndex =
+          (highlightedIndex - 1 + LANGUAGE_OPTIONS.length) %
+          LANGUAGE_OPTIONS.length
+        scrollToHighlighted()
+        break
       case 'Enter':
       case ' ':
-        e.preventDefault();
+        e.preventDefault()
         if (LANGUAGE_OPTIONS[highlightedIndex]) {
-          selectOption(LANGUAGE_OPTIONS[highlightedIndex].id);
+          selectOption(LANGUAGE_OPTIONS[highlightedIndex].id)
         }
-        break;
+        break
       case 'Escape':
-        e.preventDefault();
-        close();
-        triggerRef?.focus();
-        break;
+        e.preventDefault()
+        close()
+        triggerRef?.focus()
+        break
       case 'Tab':
-        close();
-        break;
+        close()
+        break
     }
   }
 
   function scrollToHighlighted() {
-    if (!listboxRef) return;
-    const items = listboxRef.querySelectorAll('[role="option"]');
-    const target = items[highlightedIndex] as HTMLElement | undefined;
+    if (!listboxRef) return
+    const items = listboxRef.querySelectorAll('[role="option"]')
+    const target = items[highlightedIndex] as HTMLElement | undefined
     if (target) {
-      target.scrollIntoView({ block: 'nearest' });
+      target.scrollIntoView({ block: 'nearest' })
     }
   }
 
   function handleClickOutside(e: MouseEvent) {
     if (isOpen && containerRef && !containerRef.contains(e.target as Node)) {
-      close();
+      close()
     }
   }
 
   $effect(() => {
     if (typeof window !== 'undefined' && isOpen) {
-      window.addEventListener('click', handleClickOutside);
-      return () => window.removeEventListener('click', handleClickOutside);
+      window.addEventListener('click', handleClickOutside)
+      return () => window.removeEventListener('click', handleClickOutside)
     }
-  });
+  })
 </script>
 
 <div class="relative inline-block text-left" bind:this={containerRef}>
@@ -111,12 +146,17 @@
     aria-haspopup="listbox"
     aria-expanded={isOpen}
     aria-controls="lang-listbox"
-    aria-activedescendant={isOpen && LANGUAGE_OPTIONS[highlightedIndex] ? `lang-opt-${LANGUAGE_OPTIONS[highlightedIndex].id}` : undefined}
+    aria-activedescendant={isOpen && LANGUAGE_OPTIONS[highlightedIndex]
+      ? `lang-opt-${LANGUAGE_OPTIONS[highlightedIndex].id}`
+      : undefined}
     aria-label="Filter repositories by language: {selectedOption.label}"
-    class="inline-flex items-center gap-1 font-mono text-[11px] sm:text-xs font-bold text-[var(--text-main)] uppercase cursor-pointer hover:opacity-80 transition-opacity focus-visible:outline-none focus-visible:border-[var(--accent-signal)] rounded px-0.5 -mx-0.5"
+    class="inline-flex items-center gap-1 font-mono text-[11px] sm:text-xs font-bold text-[var(--text-main)] uppercase cursor-pointer hover:opacity-80 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)] rounded px-1 -mx-1"
   >
     <span>{selectedOption.label}</span>
-    <span class="text-[var(--text-muted)] flex items-center justify-center shrink-0 transition-transform duration-150 {isOpen ? 'rotate-180' : ''}" aria-hidden="true">
+    <span
+      class="text-[var(--text-muted)] flex items-center justify-center shrink-0 transition-transform duration-150 {isOpen ? 'rotate-180' : ''}"
+      aria-hidden="true"
+    >
       <ChevronDownIcon size={12} />
     </span>
   </button>
@@ -140,7 +180,8 @@
           aria-selected={isSelected}
           tabindex="-1"
           onclick={() => selectOption(opt.id)}
-          onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && selectOption(opt.id)}
+          onkeydown={(e) =>
+            (e.key === 'Enter' || e.key === ' ') && selectOption(opt.id)}
           onmouseenter={() => (highlightedIndex = idx)}
           class="flex items-center justify-between px-3 py-1.5 rounded-lg text-xs cursor-pointer select-none transition-colors font-mono {isHighlighted ? 'bg-[var(--bg-surface-hover)] text-[var(--text-main)]' : 'text-[var(--text-main)]'} {isSelected ? 'font-semibold bg-[var(--bg-surface-hover)]/60' : 'font-normal'}"
         >

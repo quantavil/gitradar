@@ -1,5 +1,7 @@
 <script lang="ts">
-  let { size = 16, class: className = '', ...restProps } = $props<{ size?: number; class?: string; [key: string]: any }>();
+  import type { IconProps } from './types'
+
+  let { size = 16, class: className = '', ...restProps }: IconProps = $props()
 </script>
 
 <svg
@@ -15,13 +17,13 @@
   {...restProps}
 >
   <rect x="2" y="4" width="20" height="16" rx="2" ry="2" />
-  <line x1="6" y1="8" x2="6" y2="8" stroke-width="3" />
-  <line x1="10" y1="8" x2="10" y2="8" stroke-width="3" />
-  <line x1="14" y1="8" x2="14" y2="8" stroke-width="3" />
-  <line x1="18" y1="8" x2="18" y2="8" stroke-width="3" />
-  <line x1="6" y1="12" x2="6" y2="12" stroke-width="3" />
-  <line x1="10" y1="12" x2="10" y2="12" stroke-width="3" />
-  <line x1="14" y1="12" x2="14" y2="12" stroke-width="3" />
-  <line x1="18" y1="12" x2="18" y2="12" stroke-width="3" />
+  <line x1="6" y1="8" x2="6.01" y2="8" stroke-width="2.5" />
+  <line x1="10" y1="8" x2="10.01" y2="8" stroke-width="2.5" />
+  <line x1="14" y1="8" x2="14.01" y2="8" stroke-width="2.5" />
+  <line x1="18" y1="8" x2="18.01" y2="8" stroke-width="2.5" />
+  <line x1="6" y1="12" x2="6.01" y2="12" stroke-width="2.5" />
+  <line x1="10" y1="12" x2="10.01" y2="12" stroke-width="2.5" />
+  <line x1="14" y1="12" x2="14.01" y2="12" stroke-width="2.5" />
+  <line x1="18" y1="12" x2="18.01" y2="12" stroke-width="2.5" />
   <line x1="7" y1="16" x2="17" y2="16" />
 </svg>

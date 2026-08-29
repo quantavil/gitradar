@@ -1,18 +1,14 @@
 <script lang="ts">
-  import {
-    BookmarkIcon,
-    ClockIcon,
-    SettingsIcon
-  } from './icons';
-  import type { ViewMode } from './types';
+  import { BookmarkIcon, ClockIcon, SettingsIcon } from './icons'
+  import type { ViewMode } from './types'
 
   let {
     activeView = 'feed',
-    onSelectView
+    onSelectView,
   } = $props<{
-    activeView?: ViewMode;
-    onSelectView: (view: ViewMode) => void;
-  }>();
+    activeView?: ViewMode
+    onSelectView: (view: ViewMode) => void
+  }>()
 </script>
 
 <header class="sticky top-0 z-30 w-full bg-[var(--bg-canvas)]/90 backdrop-blur-md border-b border-[var(--border-subtle)] transition-colors">
@@ -37,12 +33,13 @@
       </button>
     </div>
 
-    <!-- Right: 3 Pure SVG Icon Navigation Buttons (Saved, History, Settings) -->
-    <div class="flex items-center gap-1.5 sm:gap-2">
+    <!-- Right: Semantic Primary Navigation landmark -->
+    <nav aria-label="Primary" class="flex items-center gap-1.5 sm:gap-2">
       <!-- 1. Saved Bookmarks Icon Button -->
       <button
         onclick={() => onSelectView(activeView === 'saved' ? 'feed' : 'saved')}
         aria-label="Saved Bookmarks View"
+        aria-current={activeView === 'saved' ? 'page' : undefined}
         title="Saved Bookmarks (Key 2)"
         class="w-9 h-9 sm:w-8 sm:h-8 flex items-center justify-center bg-[var(--bg-surface)] border rounded-md transition-all btn-press active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)] {
           activeView === 'saved'
@@ -57,6 +54,7 @@
       <button
         onclick={() => onSelectView(activeView === 'history' ? 'feed' : 'history')}
         aria-label="Seen History View"
+        aria-current={activeView === 'history' ? 'page' : undefined}
         title="Seen History (Key 3)"
         class="w-9 h-9 sm:w-8 sm:h-8 flex items-center justify-center bg-[var(--bg-surface)] border rounded-md transition-all btn-press active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)] {
           activeView === 'history'
@@ -71,6 +69,7 @@
       <button
         onclick={() => onSelectView(activeView === 'settings' ? 'feed' : 'settings')}
         aria-label="Settings & Shortcuts View"
+        aria-current={activeView === 'settings' ? 'page' : undefined}
         title="Settings & Shortcuts (Key 4)"
         class="w-9 h-9 sm:w-8 sm:h-8 flex items-center justify-center bg-[var(--bg-surface)] border rounded-md transition-all btn-press active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)] {
           activeView === 'settings'
@@ -80,6 +79,6 @@
       >
         <SettingsIcon size={15} aria-hidden="true" />
       </button>
-    </div>
+    </nav>
   </div>
 </header>

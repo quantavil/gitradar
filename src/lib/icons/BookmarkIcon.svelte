@@ -1,5 +1,7 @@
 <script lang="ts">
-  let { size = 16, filled = false, class: className = '', ...restProps } = $props<{ size?: number; filled?: boolean; class?: string; [key: string]: any }>();
+  import type { BookmarkIconProps } from './types'
+
+  let { size = 16, filled = false, class: className = '', ...restProps }: BookmarkIconProps = $props()
 </script>
 
 <svg

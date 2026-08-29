@@ -5,7 +5,8 @@ export interface HotkeyActions {
   onPrev: () => void;
   onSave: () => void;
   onDismiss: () => void;
-  onReset: () => void;
+  onReset?: () => void;
+  onUndo?: () => void;
   onViewFeed?: () => void;
   onViewSaved?: () => void;
   onViewHistory?: () => void;
@@ -19,12 +20,12 @@ export function setupHotkeys(actions: HotkeyActions) {
     k: () => actions.onPrev(),
     s: () => actions.onSave(),
     d: () => actions.onDismiss(),
-    r: () => actions.onReset(),
+    u: () => actions.onUndo?.(),
     '1': () => actions.onViewFeed?.(),
     '2': () => actions.onViewSaved?.(),
     '3': () => actions.onViewHistory?.(),
     '4': () => actions.onViewSettings?.(),
-    '?': () => actions.onViewSettings?.(),
+    'Shift+?': () => actions.onViewSettings?.(),
     escape: () => actions.onEscape?.(),
   };
 
@@ -42,24 +43,22 @@ export function setupHotkeys(actions: HotkeyActions) {
     );
 
     if (isModalOpen) {
-      if (e.key === 'Escape') {
-        actions.onEscape?.();
-      }
+      // Active modal or dropdown handles its own Escape key
       return;
     }
 
-    const target = e.target as HTMLElement | null;
-    const isInput = target && (
+    const target = e.target as Element | null;
+    const isInput = target && typeof target.closest === 'function' && (
       target.tagName === 'INPUT' ||
       target.tagName === 'SELECT' ||
       target.tagName === 'TEXTAREA' ||
-      target.isContentEditable ||
+      (target as HTMLElement).isContentEditable ||
       !!target.closest('[contenteditable="true"]') ||
       ['textbox', 'combobox', 'searchbox'].includes(target.getAttribute('role') || '')
     );
 
     if (isInput) {
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && target instanceof HTMLElement) {
         target.blur();
       }
       return;

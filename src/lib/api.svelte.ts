@@ -1,106 +1,118 @@
-import type { TrendshiftRepo, LanguageOption } from './types';
-import { seenStore } from './seen.svelte';
+import { fetchTrendshiftCatalog } from './trendshift-client'
+import { seenStore, SeenStore } from './seen.svelte'
+import { readLanguagePreference, writeLanguagePreference } from './storage/preferences'
+import type { CatalogResult, LanguageOption, Timeframe, TrendshiftRepo } from './types'
 
-const BASE_CDN = 'https://quantavil.github.io/trendshift/data';
+export type CatalogFetcher = (
+  language: LanguageOption,
+  options?: { signal?: AbortSignal; timeoutMs?: number },
+) => Promise<CatalogResult>
 
 export class RepoFeed {
-  repos = $state<TrendshiftRepo[]>([]);
-  loading = $state<boolean>(false);
-  error = $state<string | null>(null);
-  selectedLanguage = $state<LanguageOption>('all');
-  activeTimeframe = $state<string>('daily');
-  private _fetchId = 0;
+  catalog = $state<TrendshiftRepo[]>([])
+  successfulTimeframes = $state<Timeframe[]>([])
+  partialWarning = $state<string | null>(null)
+  loading = $state<boolean>(false)
+  error = $state<string | null>(null)
+  selectedLanguage = $state<LanguageOption>('all')
 
-  constructor() {
-    if (typeof window !== 'undefined') {
-      const savedLang = localStorage.getItem('repo_radar_lang') as LanguageOption | null;
-      if (savedLang) {
-        this.selectedLanguage = savedLang;
-      }
-    }
+  private client: CatalogFetcher
+  private seenStore: SeenStore
+  private activeController: AbortController | null = null
+  private _fetchId = 0
+
+  constructor(
+    client: CatalogFetcher = fetchTrendshiftCatalog,
+    seen: SeenStore = seenStore,
+  ) {
+    this.client = client
+    this.seenStore = seen
+    this.selectedLanguage = readLanguagePreference()
+  }
+
+  get repos(): TrendshiftRepo[] {
+    return this.catalog.filter((repo) => !this.seenStore.isSeen(repo.full_name))
+  }
+
+  get totalCount(): number {
+    return this.catalog.length
+  }
+
+  get remainingCount(): number {
+    return this.repos.length
+  }
+
+  get activeTimeframe(): string {
+    return this.successfulTimeframes[0] ?? 'daily'
   }
 
   async setLanguage(lang: LanguageOption) {
-    this.selectedLanguage = lang;
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('repo_radar_lang', lang);
+    this.selectedLanguage = lang
+    writeLanguagePreference(lang)
+    await this.fetchFeed()
+  }
+
+  cancel() {
+    if (this.activeController) {
+      this.activeController.abort()
+      this.activeController = null
     }
-    await this.fetchFeed();
   }
 
   async fetchFeed() {
-    this.loading = true;
-    this.error = null;
-    this.repos = [];
-    const fetchId = ++this._fetchId;
+    this.cancel()
 
-    const timeframes: ('daily' | 'weekly' | 'monthly')[] = ['daily', 'weekly', 'monthly'];
-    const collected: TrendshiftRepo[] = [];
-    const localSeenInSession = new Set<string>();
-    const seenDetailsToBatch: Array<{ fullName: string; repo: TrendshiftRepo }> = [];
+    const controller = new AbortController()
+    this.activeController = controller
+    const fetchId = ++this._fetchId
 
-    let networkSuccessCount = 0;
-    let primaryTimeframeSet = false;
+    this.loading = true
+    this.error = null
+    this.partialWarning = null
 
-    for (const tf of timeframes) {
-      try {
-        const langSlug = this.selectedLanguage;
-        const endpoint = `${BASE_CDN}/${tf}/${tf}-${langSlug}.json`;
-        
-        const res = await fetch(endpoint);
-        if (fetchId !== this._fetchId) return;
+    try {
+      const result = await this.client(this.selectedLanguage, {
+        signal: controller.signal,
+      })
 
-        if (!res.ok) {
-          continue;
-        }
+      if (fetchId !== this._fetchId) return
 
-        networkSuccessCount++;
-        const rawData: TrendshiftRepo[] = await res.json();
-        if (fetchId !== this._fetchId) return;
-        
-        let addedInThisTimeframe = 0;
-        
-        for (const item of rawData) {
-          if (!item.full_name) continue;
-          const normName = item.full_name.trim().toLowerCase();
-          
-          if (seenStore.isSeen(normName)) {
-            seenDetailsToBatch.push({ fullName: normName, repo: item });
-            continue;
-          }
-          if (localSeenInSession.has(normName)) {
-            continue;
-          }
+      this.catalog = result.catalog
+      this.successfulTimeframes = result.successfulTimeframes
 
-          localSeenInSession.add(normName);
-          collected.push({ ...item, timeframe: tf });
-          addedInThisTimeframe++;
-        }
-
-        if (!primaryTimeframeSet && addedInThisTimeframe > 0) {
-          this.activeTimeframe = tf;
-          primaryTimeframeSet = true;
-        }
-      } catch (err) {
-        console.warn(`Failed to fetch ${tf} timeframe:`, err);
+      if (result.failures.length > 0) {
+        const failedNames = result.failures.map((f: { timeframe: Timeframe; message: string }) => f.timeframe).join(', ')
+        this.partialWarning = `Could not load ${failedNames} timeframe data.`
       }
-    }
 
-    if (fetchId !== this._fetchId) return;
-
-    if (seenDetailsToBatch.length > 0) {
-      seenStore.setSeenDetailsBatch(seenDetailsToBatch);
-    }
-
-    this.repos = collected;
-    this.loading = false;
-
-    if (networkSuccessCount === 0) {
-      this.error = 'Failed to load repository feed. Please check your network connection and try again.';
-    } else {
-      this.error = null;
+      if (result.successfulTimeframes.length === 0) {
+        this.error =
+          'Failed to load repository feed. Please check your network connection and try again.'
+      } else {
+        this.error = null
+        const seenInCatalog = result.catalog.filter((repo: TrendshiftRepo) =>
+          this.seenStore.isSeen(repo.full_name),
+        )
+        if (seenInCatalog.length > 0) {
+          void this.seenStore.enrichSeenDetails(seenInCatalog)
+        }
+      }
+    } catch (err: unknown) {
+      if (fetchId !== this._fetchId) return
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        return
+      }
+      this.error =
+        err instanceof Error
+          ? err.message
+          : 'Failed to load repository feed. Please check your network connection and try again.'
+    } finally {
+      if (fetchId === this._fetchId) {
+        this.loading = false
+        this.activeController = null
+      }
     }
   }
 }
 
-export const repoFeed = new RepoFeed();
+export const repoFeed = new RepoFeed()
