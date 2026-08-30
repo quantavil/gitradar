@@ -35,10 +35,9 @@
 
   const sourceLabel = $derived.by(() => {
     if (loading && repoFeed.catalog.length === 0) return 'Loading'
-    if (repoFeed.successfulTimeframes.length === 0) return error ? 'Unavailable' : 'Loading'
-    return repoFeed.successfulTimeframes
-      .map((tf) => tf.charAt(0).toUpperCase() + tf.slice(1))
-      .join(' + ')
+    const timeframe = repos[0]?.timeframe ?? repoFeed.successfulTimeframes[0]
+    if (!timeframe) return error ? 'Unavailable' : 'Loading'
+    return timeframe.charAt(0).toUpperCase() + timeframe.slice(1)
   })
 
   function handleExplicitDismiss(repo: TrendshiftRepo) {
@@ -322,6 +321,9 @@
           {focusedIndex}
           onFocusIndex={(i) => (focusedIndex = i)}
           onDismiss={handleExplicitDismiss}
+          onAutoSeen={(repo) => {
+            if (seenStore.autoSeenOnScroll) void seenStore.markSeen(repo)
+          }}
         />
       {/if}
     {/if}

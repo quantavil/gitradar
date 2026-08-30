@@ -4,7 +4,7 @@ import App from '../App.svelte'
 import { makeRepo } from '../test/fixtures'
 
 describe('App integration', () => {
-  test('shows successful sources and live remaining count inline', async () => {
+  test('shows the current repository source and live remaining count inline', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) => {
@@ -25,12 +25,13 @@ describe('App integration', () => {
     await expect
       .poll(async () => {
         const text = document.body.textContent || ''
-        return text.includes('Daily + Weekly + Monthly')
+        return text.includes('Source:') && text.includes('Remaining 3 / 3')
       })
       .toBe(true)
 
     const text = document.body.textContent || ''
-    expect(text).toContain('Daily + Weekly + Monthly')
+    expect(text).toMatch(/Source:\s*Daily/)
+    expect(text).not.toContain('Daily + Weekly + Monthly')
     expect(text).toMatch(/Remaining\s+3\s+\/\s+3/)
   })
 
