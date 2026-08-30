@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount } from 'svelte';
   import type { TrendshiftRepo } from './types';
   import { seenStore } from './seen.svelte';
   import RepoItem from './RepoItem.svelte';
@@ -21,8 +21,6 @@
   }>();
 
   let cardRef: HTMLElement | null = null;
-  let observer: IntersectionObserver | null = null;
-  let hasBeenVisible = false;
 
   // Touch Swipe Gesture State
   let startX = 0;
@@ -117,29 +115,7 @@
     cardRef.addEventListener('touchend', handleTouchEnd, { passive: true });
     cardRef.addEventListener('touchcancel', handleTouchEnd, { passive: true });
 
-    observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (!seenStore.autoSeenOnScroll) return;
-          if (!entry.target.isConnected) return;
-
-          if (entry.isIntersecting) {
-            hasBeenVisible = true;
-          } else if (hasBeenVisible && entry.boundingClientRect.bottom < 56) {
-            void seenStore.markSeen(repo);
-          }
-        });
-      },
-      { rootMargin: '-56px 0px 0px 0px', threshold: [0, 0.1] }
-    );
-
-    observer.observe(cardRef);
-
     return () => {
-      if (observer) {
-        observer.disconnect();
-        observer = null;
-      }
       if (cardRef) {
         cardRef.removeEventListener('touchstart', handleTouchStart);
         cardRef.removeEventListener('touchmove', handleTouchMove);

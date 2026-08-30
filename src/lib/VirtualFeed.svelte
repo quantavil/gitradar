@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { untrack } from 'svelte'
+  import { onMount, untrack } from 'svelte'
   import { createWindowVirtualizer } from '@tanstack/svelte-virtual'
   import type { TrendshiftRepo } from './types'
+  import { ScrollPastTracker } from './scroll-past'
   import RepoCard from './RepoCard.svelte'
 
   let {
@@ -9,11 +10,13 @@
     focusedIndex = -1,
     onFocusIndex,
     onDismiss,
+    onAutoSeen,
   } = $props<{
     repos: TrendshiftRepo[]
     focusedIndex?: number
     onFocusIndex?: (index: number) => void
     onDismiss?: (repo: TrendshiftRepo) => void
+    onAutoSeen?: (repo: TrendshiftRepo) => void
   }>()
 
   let containerRef: HTMLDivElement | null = null
@@ -37,6 +40,52 @@
         getItemKey: (index) => repos[index]?.full_name ?? index,
       })
     })
+  })
+
+  onMount(() => {
+    if (!containerRef || typeof window === 'undefined') return
+
+    const tracker = new ScrollPastTracker()
+    let frame: number | null = null
+    let disposed = false
+
+    const measure = () => {
+      frame = null
+      if (disposed || !containerRef) return
+
+      const rows = Array.from(
+        containerRef.querySelectorAll<HTMLElement>('[data-repo-key]'),
+      ).flatMap((element) => {
+        const key = element.dataset.repoKey
+        if (!key) return []
+        const rect = element.getBoundingClientRect()
+        return [{ key, top: rect.top, bottom: rect.bottom }]
+      })
+
+      const crossedKeys = tracker.update(window.scrollY, window.innerHeight, rows)
+      for (const key of crossedKeys) {
+        const repo = repos.find((candidate: TrendshiftRepo) => candidate.full_name === key)
+        if (repo) onAutoSeen?.(repo)
+      }
+    }
+
+    const scheduleMeasure = () => {
+      if (frame !== null) return
+      frame = window.requestAnimationFrame(measure)
+    }
+
+    const handleScroll = () => scheduleMeasure()
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    measure()
+    scheduleMeasure()
+
+    return () => {
+      disposed = true
+      window.removeEventListener('scroll', handleScroll)
+      if (frame !== null) {
+        window.cancelAnimationFrame(frame)
+      }
+    }
   })
 
   $effect(() => {
@@ -73,6 +122,7 @@
       {@const repo = repos[row.index]}
       {#if repo}
         <div
+          data-repo-key={repo.full_name}
           data-index={row.index}
           use:$virtualizer.measureElement
           style="position: absolute; top: 0; left: 0; width: 100%; transform: translateY({row.start - $virtualizer.options.scrollMargin}px);"
