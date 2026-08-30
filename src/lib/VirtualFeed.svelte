@@ -26,6 +26,7 @@
     count: 0,
     estimateSize: () => 190,
     overscan: 6,
+    useAnimationFrameWithResizeObserver: true,
     getItemKey: (index) => repos[index]?.full_name ?? index,
     scrollMargin: 0,
   })
@@ -90,19 +91,29 @@
 
   $effect(() => {
     if (!containerRef || typeof window === 'undefined') return
-    const updateTop = () => {
+    const applyTop = () => {
       if (containerRef) {
         const rect = containerRef.getBoundingClientRect()
-        listTop = rect.top + window.scrollY
+        const nextTop = rect.top + window.scrollY
+        if (nextTop !== listTop) listTop = nextTop
       }
     }
-    updateTop()
+    let frame: number | null = null
+    const updateTop = () => {
+      if (frame !== null) return
+      frame = window.requestAnimationFrame(() => {
+        frame = null
+        applyTop()
+      })
+    }
+    applyTop()
     const observer = new ResizeObserver(updateTop)
     observer.observe(containerRef)
-    window.addEventListener('resize', updateTop)
+    window.addEventListener('resize', updateTop, { passive: true })
     return () => {
       observer.disconnect()
       window.removeEventListener('resize', updateTop)
+      if (frame !== null) window.cancelAnimationFrame(frame)
     }
   })
 
