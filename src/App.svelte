@@ -26,10 +26,17 @@
   let lastDismissedRepo = $state<TrendshiftRepo | null>(null)
   let toastVisible = $state(false)
   let toastTimeout: ReturnType<typeof setTimeout> | null = null
+  let autoSeenKeys = $state<Set<string>>(new Set())
 
   let virtualFeedRef = $state<{ scrollToIndex: (index: number, options?: { align?: 'start' | 'center' | 'end' | 'auto' }) => void } | null>(null)
 
   const repos = $derived(repoFeed.repos)
+  const feedRepos = $derived.by(() =>
+    repoFeed.catalog.filter(
+      (repo) =>
+        !seenStore.isSeen(repo.full_name) || autoSeenKeys.has(repo.full_name),
+    ),
+  )
   const loading = $derived(repoFeed.loading)
   const error = $derived(repoFeed.error)
 
@@ -63,6 +70,19 @@
     }
   }
 
+  function clearAutoSeen() {
+    autoSeenKeys = new Set()
+  }
+
+  function handleAutoSeen(repo: TrendshiftRepo) {
+    if (!seenStore.autoSeenOnScroll || seenStore.isSeen(repo.full_name)) return
+
+    const next = new Set(autoSeenKeys)
+    next.add(repo.full_name)
+    autoSeenKeys = next
+    void seenStore.markSeen(repo)
+  }
+
   onDestroy(() => {
     if (toastTimeout) {
       clearTimeout(toastTimeout)
@@ -70,8 +90,8 @@
   })
 
   $effect(() => {
-    if (focusedIndex >= repos.length) {
-      focusedIndex = repos.length > 0 ? repos.length - 1 : -1
+    if (focusedIndex >= feedRepos.length) {
+      focusedIndex = feedRepos.length > 0 ? feedRepos.length - 1 : -1
     }
   })
 
@@ -80,16 +100,16 @@
 
     const cleanupHotkeys = setupHotkeys({
       onNext: () => {
-        if (activeView !== 'feed' || isResetConfirmOpen || repos.length === 0) return
+        if (activeView !== 'feed' || isResetConfirmOpen || feedRepos.length === 0) return
         if (focusedIndex === -1) {
           focusedIndex = 0
         } else {
-          focusedIndex = Math.min(focusedIndex + 1, repos.length - 1)
+          focusedIndex = Math.min(focusedIndex + 1, feedRepos.length - 1)
         }
         virtualFeedRef?.scrollToIndex(focusedIndex, { align: 'auto' })
       },
       onPrev: () => {
-        if (activeView !== 'feed' || isResetConfirmOpen || repos.length === 0) return
+        if (activeView !== 'feed' || isResetConfirmOpen || feedRepos.length === 0) return
         if (focusedIndex === -1) {
           focusedIndex = 0
         } else {
@@ -102,22 +122,22 @@
           focusedIndex < 0 ||
           activeView !== 'feed' ||
           isResetConfirmOpen ||
-          repos.length === 0 ||
-          !repos[focusedIndex]
+          feedRepos.length === 0 ||
+          !feedRepos[focusedIndex]
         )
           return
-        void seenStore.toggleSave(repos[focusedIndex])
+        void seenStore.toggleSave(feedRepos[focusedIndex])
       },
       onDismiss: () => {
         if (
           focusedIndex < 0 ||
           activeView !== 'feed' ||
           isResetConfirmOpen ||
-          repos.length === 0 ||
-          !repos[focusedIndex]
+          feedRepos.length === 0 ||
+          !feedRepos[focusedIndex]
         )
           return
-        handleExplicitDismiss(repos[focusedIndex])
+        handleExplicitDismiss(feedRepos[focusedIndex])
       },
       onUndo: () => {
         if (toastVisible && lastDismissedRepo) {
@@ -140,6 +160,7 @@
     void (async () => {
       await seenStore.init()
       if (!cancelled) {
+        clearAutoSeen()
         await repoFeed.fetchFeed()
       }
     })()
@@ -164,6 +185,7 @@
   })
 
   function handleResetAll() {
+    clearAutoSeen()
     void seenStore.resetSeen()
     void repoFeed.fetchFeed()
     focusedIndex = -1
@@ -199,6 +221,7 @@
               value={repoFeed.selectedLanguage}
               onChange={(lang) => {
                 focusedIndex = -1
+                clearAutoSeen()
                 void repoFeed.setLanguage(lang)
               }}
             />
@@ -281,13 +304,16 @@
         <div class="py-16 text-center space-y-3 border border-[var(--border-subtle)] rounded-lg bg-[var(--bg-surface)] p-6 shadow-[var(--card-shadow)]">
           <p class="text-sm font-mono text-[var(--badge-red-text)]">{error}</p>
           <button
-            onclick={() => void repoFeed.fetchFeed()}
+            onclick={() => {
+              clearAutoSeen()
+              void repoFeed.fetchFeed()
+            }}
             class="px-4 py-2 bg-[var(--bg-canvas)] text-[var(--text-main)] border border-[var(--border-subtle)] rounded-md text-xs font-mono font-medium hover:border-[var(--border-strong)] transition-all btn-press active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)]"
           >
             Try Again
           </button>
         </div>
-      {:else if repos.length === 0}
+      {:else if repos.length === 0 && feedRepos.length === 0}
         <!-- Empty State -->
         <div class="py-16 text-center space-y-4 border border-[var(--border-subtle)] rounded-lg bg-[var(--bg-surface)] p-6 sm:p-8 max-w-lg mx-auto shadow-[var(--card-shadow)]">
           <div class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-[var(--accent-signal-soft-bg)] border border-[var(--accent-signal)]/30 text-[var(--accent-signal-soft-text)]">
@@ -317,13 +343,11 @@
         <!-- Virtualized Feed Stream -->
         <VirtualFeed
           bind:this={virtualFeedRef}
-          {repos}
+          repos={feedRepos}
           {focusedIndex}
           onFocusIndex={(i) => (focusedIndex = i)}
           onDismiss={handleExplicitDismiss}
-          onAutoSeen={(repo) => {
-            if (seenStore.autoSeenOnScroll) void seenStore.markSeen(repo)
-          }}
+          onAutoSeen={handleAutoSeen}
         />
       {/if}
     {/if}

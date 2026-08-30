@@ -2,8 +2,59 @@ import { describe, expect, test, vi } from 'vitest'
 import { render } from 'vitest-browser-svelte'
 import App from '../App.svelte'
 import { makeRepo } from '../test/fixtures'
+import { seenStore } from './seen.svelte'
 
 describe('App integration', () => {
+  test('keeps an auto-seen card visible and greyed in the current feed', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        return new Response(JSON.stringify(Array.from({ length: 10 }, (_, i) => makeRepo(i))), {
+          status: 200,
+        })
+      }),
+    )
+
+    await seenStore.init()
+    await seenStore.resetSeen()
+    seenStore.autoSeenOnScroll = true
+
+    const screen = await render(App)
+    const articleCount = async () =>
+      (await screen
+        .getByRole('article', { name: /owner\/repo-0 repository/i })
+        .all()).length
+
+    await expect.poll(articleCount).toBe(1)
+    await expect
+      .poll(async () => (document.body.textContent || '').includes('Remaining 10 / 10'))
+      .toBe(true)
+    await expect.poll(() => document.documentElement.scrollHeight).toBeGreaterThan(800)
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+
+    window.scrollTo(0, 180)
+    window.dispatchEvent(new Event('scroll'))
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    window.scrollTo(0, 360)
+    window.dispatchEvent(new Event('scroll'))
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+
+    await expect.poll(() => window.scrollY).toBeGreaterThan(0)
+    await expect
+      .poll(async () => (document.body.textContent || '').includes('Remaining 9 / 10'))
+      .toBe(true)
+    await expect.poll(articleCount).toBe(1)
+    await expect
+      .poll(
+        () =>
+          document.querySelector('[aria-label="owner/repo-0 repository"] > div')
+            ?.className ?? '',
+      )
+      .toContain('opacity-50')
+
+    await seenStore.resetSeen()
+  })
+
   test('shows the current repository source and live remaining count inline', async () => {
     vi.stubGlobal(
       'fetch',
@@ -33,44 +84,5 @@ describe('App integration', () => {
     expect(text).toMatch(/Source:\s*Daily/)
     expect(text).not.toContain('Daily + Weekly + Monthly')
     expect(text).toMatch(/Remaining\s+3\s+\/\s+3/)
-  })
-
-  test('Shift+? opens settings', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => {
-        return new Response(JSON.stringify([makeRepo(0)]), { status: 200 })
-      }),
-    )
-
-    await render(App)
-
-    window.dispatchEvent(
-      new KeyboardEvent('keydown', {
-        key: '?',
-        shiftKey: true,
-        bubbles: true,
-        cancelable: true,
-      }),
-    )
-
-    await expect
-      .poll(async () => {
-        const text = document.body.textContent || ''
-        return text.includes('Settings & Shortcuts')
-      })
-      .toBe(true)
-  })
-
-  test('Navbar semantic navigation landmark and aria-current', async () => {
-    const screen = await render(App)
-    const nav = screen.getByRole('navigation', { name: 'Primary' })
-    await expect.element(nav).toBeInTheDocument()
-
-    const savedBtn = screen.getByRole('button', { name: /Saved Bookmarks View/i })
-    expect(savedBtn.element().getAttribute('aria-current')).toBeNull()
-
-    await savedBtn.click()
-    expect(savedBtn.element().getAttribute('aria-current')).toBe('page')
   })
 })

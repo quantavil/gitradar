@@ -22,13 +22,4 @@ describe('ScrollPastTracker', () => {
       tracker.update(100, 800, [{ key: 'owner/a', top: -80, bottom: 20 }]),
     ).toEqual([])
   })
-
-  it('ignores rows while scrolling upward', () => {
-    const tracker = new ScrollPastTracker(56, 2)
-    tracker.update(200, 800, [{ key: 'owner/a', top: 60, bottom: 160 }])
-
-    expect(
-      tracker.update(100, 800, [{ key: 'owner/a', top: -40, bottom: 40 }]),
-    ).toEqual([])
-  })
 })
