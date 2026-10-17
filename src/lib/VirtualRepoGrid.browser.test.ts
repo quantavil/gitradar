@@ -15,10 +15,12 @@ test('virtualizes large collections and keeps DOM bounded', async () => {
     },
   })
 
+  // Wait for rendering to start so the upper bound cannot pass on an empty grid.
   await expect
-    .poll(async () => {
-      const links = await screen.getByRole('link').all()
-      return links.length
-    })
+    .poll(async () => (await screen.getByRole('link').all()).length)
+    .toBeGreaterThan(0)
+
+  await expect
+    .poll(async () => (await screen.getByRole('link').all()).length)
     .toBeLessThanOrEqual(40)
 })

@@ -1,10 +1,14 @@
-import { describe, expect, test, vi } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import { render } from 'vitest-browser-svelte'
 import App from '../App.svelte'
 import { makeRepo } from '../test/fixtures'
 import { seenStore } from './seen.svelte'
 
 describe('App integration', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
   test('keeps an auto-seen card visible and greyed in the current feed', async () => {
     vi.stubGlobal(
       'fetch',
@@ -35,7 +39,11 @@ describe('App integration', () => {
     window.scrollTo(0, 180)
     window.dispatchEvent(new Event('scroll'))
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
-    window.scrollTo(0, 360)
+    // Scroll until repo 0's bottom edge sits above the sticky header. The masthead sets how far
+    // the list starts, so derive the distance from the layout instead of a fixed offset.
+    const firstCard = document.querySelector<HTMLElement>('[aria-label="owner/repo-0 repository"]')
+    const firstCardBottom = (firstCard?.getBoundingClientRect().bottom ?? 0) + window.scrollY
+    window.scrollTo(0, Math.max(firstCardBottom - 40, 180))
     window.dispatchEvent(new Event('scroll'))
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
 
@@ -50,7 +58,7 @@ describe('App integration', () => {
           document.querySelector('[aria-label="owner/repo-0 repository"] > div')
             ?.className ?? '',
       )
-      .toContain('opacity-50')
+      .toContain('opacity-60')
 
     await seenStore.resetSeen()
   })

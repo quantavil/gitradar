@@ -14,11 +14,13 @@ test('keeps the rendered card count bounded without pagination controls', async 
     },
   })
 
+  // Wait for rendering to start so the upper bound cannot pass on an empty list.
   await expect
-    .poll(async () => {
-      const items = await screen.getByRole('article').all()
-      return items.length
-    })
+    .poll(async () => (await screen.getByRole('article').all()).length)
+    .toBeGreaterThan(0)
+
+  await expect
+    .poll(async () => (await screen.getByRole('article').all()).length)
     .toBeLessThanOrEqual(40)
 
   const buttons = await screen.getByRole('button', { name: /next page|load more/i }).all()
@@ -38,6 +40,8 @@ test('does not auto-see more rows without another scroll event', async () => {
   })
 
   await expect.element(screen.getByRole('article').first()).toBeInTheDocument()
+  // The feed takes its scroll baseline on the first frame after mount, as it does for a real user.
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
   window.scrollTo(0, 400)
   window.dispatchEvent(new Event('scroll'))
 

@@ -11,12 +11,15 @@
     onFocusIndex,
     onDismiss,
     onAutoSeen,
+    headerOffset = 56,
   } = $props<{
     repos: TrendshiftRepo[]
     focusedIndex?: number
     onFocusIndex?: (index: number) => void
     onDismiss?: (repo: TrendshiftRepo) => void
     onAutoSeen?: (repo: TrendshiftRepo) => void
+    /** Height of the sticky navbar in px. Scroll-past and keyboard scrolling clear it. */
+    headerOffset?: number
   }>()
 
   let containerRef: HTMLDivElement | null = null
@@ -31,60 +34,98 @@
     scrollMargin: 0,
   })
 
+  const scrollPast = new ScrollPastTracker()
+  let measureFrame: number | null = null
+
+  function measureScrollPast() {
+    if (typeof window === 'undefined' || !containerRef) return
+
+    const rows = Array.from(
+      containerRef.querySelectorAll<HTMLElement>('[data-repo-key]'),
+    ).flatMap((element) => {
+      const key = element.dataset.repoKey
+      if (!key) return []
+      const rect = element.getBoundingClientRect()
+      return [{ key, top: rect.top, bottom: rect.bottom }]
+    })
+
+    const crossedKeys = scrollPast.update(
+      window.scrollY,
+      window.innerHeight,
+      rows,
+      headerOffset,
+    )
+    for (const key of crossedKeys) {
+      const repo = repos.find((candidate: TrendshiftRepo) => candidate.full_name === key)
+      if (repo) onAutoSeen?.(repo)
+    }
+  }
+
+  // Scroll, resize, list replacement and row re-measurement all funnel through this one
+  // rAF-throttled pass, so the row snapshot always matches the current layout.
+  function scheduleMeasure() {
+    if (typeof window === 'undefined' || measureFrame !== null) return
+    measureFrame = window.requestAnimationFrame(() => {
+      measureFrame = null
+      measureScrollPast()
+    })
+  }
+
   $effect(() => {
     const count = repos.length
     const margin = listTop
+    const padding = headerOffset
     untrack(() => {
       $virtualizer.setOptions({
         count,
         scrollMargin: margin,
+        scrollPaddingStart: padding,
         getItemKey: (index) => repos[index]?.full_name ?? index,
       })
     })
   })
 
+  // Replacing the list moves every row, so drop the old baseline and take a fresh one.
+  $effect(() => {
+    void repos
+    scrollPast.reset()
+    scheduleMeasure()
+  })
+
+  // Row size or position changes from the virtualizer also change the layout.
+  $effect(() => {
+    $virtualizer.getVirtualItems()
+    scheduleMeasure()
+  })
+
   onMount(() => {
     if (!containerRef || typeof window === 'undefined') return
+    const container = containerRef
 
-    const tracker = new ScrollPastTracker()
-    let frame: number | null = null
-    let disposed = false
-
-    const measure = () => {
-      frame = null
-      if (disposed || !containerRef) return
-
-      const rows = Array.from(
-        containerRef.querySelectorAll<HTMLElement>('[data-repo-key]'),
-      ).flatMap((element) => {
-        const key = element.dataset.repoKey
-        if (!key) return []
-        const rect = element.getBoundingClientRect()
-        return [{ key, top: rect.top, bottom: rect.bottom }]
-      })
-
-      const crossedKeys = tracker.update(window.scrollY, window.innerHeight, rows)
-      for (const key of crossedKeys) {
-        const repo = repos.find((candidate: TrendshiftRepo) => candidate.full_name === key)
-        if (repo) onAutoSeen?.(repo)
-      }
+    // Clicking or focusing a card moves the keyboard highlight to that card.
+    const syncFocusedRow = (event: Event) => {
+      const row = (event.target as Element | null)?.closest<HTMLElement>('[data-index]')
+      const index = Number(row?.dataset.index)
+      if (row && Number.isInteger(index)) onFocusIndex?.(index)
     }
-
-    const scheduleMeasure = () => {
-      if (frame !== null) return
-      frame = window.requestAnimationFrame(measure)
-    }
+    // Capture phase, so a card button that stops propagation still syncs the highlight.
+    container.addEventListener('focusin', syncFocusedRow)
+    container.addEventListener('click', syncFocusedRow, { capture: true })
 
     const handleScroll = () => scheduleMeasure()
+    const handleResize = () => scheduleMeasure()
     window.addEventListener('scroll', handleScroll, { passive: true })
-    measure()
+    window.addEventListener('resize', handleResize, { passive: true })
     scheduleMeasure()
 
     return () => {
-      disposed = true
+      container.removeEventListener('focusin', syncFocusedRow)
+      container.removeEventListener('click', syncFocusedRow, { capture: true })
       window.removeEventListener('scroll', handleScroll)
-      if (frame !== null) {
-        window.cancelAnimationFrame(frame)
+      window.removeEventListener('resize', handleResize)
+      if (measureFrame !== null) {
+        window.cancelAnimationFrame(measureFrame)
+        measureFrame = null
       }
     }
   })
@@ -95,7 +136,7 @@
       if (containerRef) {
         const rect = containerRef.getBoundingClientRect()
         const nextTop = rect.top + window.scrollY
-        if (nextTop !== listTop) listTop = nextTop
+        if (nextTop !== untrack(() => listTop)) listTop = nextTop
       }
     }
     let frame: number | null = null

@@ -1,22 +1,6 @@
-import type { LanguageOption } from '../types'
+import { LANGUAGE_OPTIONS, type LanguageOption } from '../types'
 
-const LANGUAGE_IDS = new Set<LanguageOption>([
-  'all',
-  'python',
-  'rust',
-  'typescript',
-  'go',
-  'javascript',
-  'cpp',
-  'java',
-  'csharp',
-  'ruby',
-  'php',
-  'swift',
-  'kotlin',
-  'dart',
-  'zig',
-])
+const LANGUAGE_IDS = new Set<string>(LANGUAGE_OPTIONS.map((option) => option.id))
 
 export function getBrowserStorage(): Storage | null {
   if (typeof window === 'undefined') return null
@@ -55,6 +39,22 @@ export function writeBooleanPreference(
   } catch {
     return false
   }
+}
+
+/** Single-key shortcuts (J, K, S, D, U, 1–4, ?). Escape is not affected. Defaults to on. */
+export const CHARACTER_SHORTCUTS_KEY = 'repo_radar_shortcuts'
+
+export function readCharacterShortcutsPreference(storage?: Storage | null): boolean {
+  const targetStorage = storage !== undefined ? storage : getBrowserStorage()
+  return readBooleanPreference(targetStorage, CHARACTER_SHORTCUTS_KEY, true)
+}
+
+export function writeCharacterShortcutsPreference(
+  value: boolean,
+  storage?: Storage | null,
+): boolean {
+  const targetStorage = storage !== undefined ? storage : getBrowserStorage()
+  return writeBooleanPreference(targetStorage, CHARACTER_SHORTCUTS_KEY, value)
 }
 
 export function readLanguagePreference(storage?: Storage | null): LanguageOption {

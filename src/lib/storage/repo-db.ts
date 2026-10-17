@@ -1,29 +1,9 @@
-import { normalizeRepo } from '../repo-schema'
-import type { SavedEntry, SeenEntry, TrendshiftRepo } from '../types'
+import type { SavedEntry, SeenEntry } from '../types'
 
 const DB_NAME = 'repo-radar-db'
 const DB_VERSION = 1
 const STORE_SEEN = 'seen'
 const STORE_SAVED = 'saved'
-const MIGRATED_KEY = 'repo_radar_storage_migrated'
-
-function createStubRepo(fullName: string): TrendshiftRepo {
-  return {
-    rank: 0,
-    score: 0,
-    full_name: fullName,
-    github_url: 'https://github.com/' + fullName,
-    description: '',
-    language: '',
-    stars_total: 0,
-    stars_gained: 0,
-    forks_total: 0,
-    forks_gained: 0,
-    created_at: '',
-    tags: [],
-    social_mention_platforms: [],
-  }
-}
 
 export class RepoDatabase {
   private db: IDBDatabase
@@ -42,21 +22,82 @@ export class RepoDatabase {
 
       request.onupgradeneeded = () => {
         const db = request.result
-        if (!db.objectStoreNames.contains(STORE_SEEN)) {
-          db.createObjectStore(STORE_SEEN, { keyPath: 'key' })
-        }
-        if (!db.objectStoreNames.contains(STORE_SAVED)) {
-          db.createObjectStore(STORE_SAVED, { keyPath: 'key' })
-        }
+        db.createObjectStore(STORE_SEEN, { keyPath: 'key' })
+        db.createObjectStore(STORE_SAVED, { keyPath: 'key' })
       }
 
       request.onsuccess = () => {
-        resolve(new RepoDatabase(request.result))
+        const db = request.result
+        // Let a newer app version or another tab upgrade the database instead of being blocked.
+        db.onversionchange = () => db.close()
+        resolve(new RepoDatabase(db))
       }
 
       request.onerror = () => {
         reject(request.error ?? new Error('Failed to open IndexedDB'))
       }
+    })
+  }
+
+  getAllSeen(): Promise<SeenEntry[]> {
+    return this.readAll<SeenEntry>(STORE_SEEN)
+  }
+
+  getAllSaved(): Promise<SavedEntry[]> {
+    return this.readAll<SavedEntry>(STORE_SAVED)
+  }
+
+  putSeen(entry: SeenEntry): Promise<void> {
+    return this.write(STORE_SEEN, (store) => store.put(entry))
+  }
+
+  deleteSeen(key: string): Promise<void> {
+    return this.write(STORE_SEEN, (store) => store.delete(key))
+  }
+
+  replaceSeen(entries: SeenEntry[]): Promise<void> {
+    return this.write(STORE_SEEN, (store) => {
+      store.clear()
+      for (const entry of entries) store.put(entry)
+    })
+  }
+
+  clearSeen(): Promise<void> {
+    return this.write(STORE_SEEN, (store) => store.clear())
+  }
+
+  putSaved(entry: SavedEntry): Promise<void> {
+    return this.write(STORE_SAVED, (store) => store.put(entry))
+  }
+
+  deleteSaved(key: string): Promise<void> {
+    return this.write(STORE_SAVED, (store) => store.delete(key))
+  }
+
+  clearSaved(): Promise<void> {
+    return this.write(STORE_SAVED, (store) => store.clear())
+  }
+
+  close(): void {
+    this.db.close()
+  }
+
+  private readAll<T>(storeName: string): Promise<T[]> {
+    return this.runTransaction([storeName], 'readonly', (tx) => {
+      return new Promise<T[]>((resolve, reject) => {
+        const req = tx.objectStore(storeName).getAll()
+        req.onsuccess = () => resolve(req.result as T[])
+        req.onerror = () => reject(req.error)
+      })
+    })
+  }
+
+  private write(
+    storeName: string,
+    operation: (store: IDBObjectStore) => unknown,
+  ): Promise<void> {
+    return this.runTransaction([storeName], 'readwrite', (tx) => {
+      operation(tx.objectStore(storeName))
     })
   }
 
@@ -66,16 +107,20 @@ export class RepoDatabase {
     operation: (tx: IDBTransaction) => Promise<T> | void,
   ): Promise<T> {
     return new Promise((resolve, reject) => {
+      let started: IDBTransaction | null = null
       try {
         const tx = this.db.transaction(storeNames, mode)
+        started = tx
         let result: T
 
         tx.oncomplete = () => {
           resolve(result)
         }
 
-        tx.onerror = () => {
-          reject(tx.error ?? new Error('Transaction error'))
+        tx.onerror = (event) => {
+          // The failing request carries the real cause; tx.error is not set yet at this point.
+          const failed = (event.target as IDBRequest | null)?.error ?? tx.error
+          reject(failed instanceof Error ? failed : new Error('Transaction error'))
         }
 
         tx.onabort = () => {
@@ -96,208 +141,12 @@ export class RepoDatabase {
             })
         }
       } catch (err) {
+        // Abort so requests already queued before the throw cannot commit.
+        try {
+          started?.abort()
+        } catch {}
         reject(err)
       }
     })
-  }
-
-  getAllSeen(): Promise<SeenEntry[]> {
-    return this.runTransaction([STORE_SEEN], 'readonly', (tx) => {
-      return new Promise<SeenEntry[]>((resolve, reject) => {
-        const store = tx.objectStore(STORE_SEEN)
-        const req = store.getAll()
-        req.onsuccess = () => resolve(req.result as SeenEntry[])
-        req.onerror = () => reject(req.error)
-      })
-    })
-  }
-
-  getAllSaved(): Promise<SavedEntry[]> {
-    return this.runTransaction([STORE_SAVED], 'readonly', (tx) => {
-      return new Promise<SavedEntry[]>((resolve, reject) => {
-        const store = tx.objectStore(STORE_SAVED)
-        const req = store.getAll()
-        req.onsuccess = () => resolve(req.result as SavedEntry[])
-        req.onerror = () => reject(req.error)
-      })
-    })
-  }
-
-  putSeen(entry: SeenEntry): Promise<void> {
-    return this.runTransaction([STORE_SEEN], 'readwrite', (tx) => {
-      tx.objectStore(STORE_SEEN).put(entry)
-    })
-  }
-
-  deleteSeen(key: string): Promise<void> {
-    return this.runTransaction([STORE_SEEN], 'readwrite', (tx) => {
-      tx.objectStore(STORE_SEEN).delete(key)
-    })
-  }
-
-  replaceSeen(entries: SeenEntry[]): Promise<void> {
-    return this.runTransaction([STORE_SEEN], 'readwrite', (tx) => {
-      const store = tx.objectStore(STORE_SEEN)
-      store.clear()
-      for (const entry of entries) {
-        store.put(entry)
-      }
-    })
-  }
-
-  putSaved(entry: SavedEntry): Promise<void> {
-    return this.runTransaction([STORE_SAVED], 'readwrite', (tx) => {
-      tx.objectStore(STORE_SAVED).put(entry)
-    })
-  }
-
-  deleteSaved(key: string): Promise<void> {
-    return this.runTransaction([STORE_SAVED], 'readwrite', (tx) => {
-      tx.objectStore(STORE_SAVED).delete(key)
-    })
-  }
-
-  replaceSaved(entries: SavedEntry[]): Promise<void> {
-    return this.runTransaction([STORE_SAVED], 'readwrite', (tx) => {
-      const store = tx.objectStore(STORE_SAVED)
-      store.clear()
-      for (const entry of entries) {
-        store.put(entry)
-      }
-    })
-  }
-
-  clearSeen(): Promise<void> {
-    return this.runTransaction([STORE_SEEN], 'readwrite', (tx) => {
-      tx.objectStore(STORE_SEEN).clear()
-    })
-  }
-
-  clearSaved(): Promise<void> {
-    return this.runTransaction([STORE_SAVED], 'readwrite', (tx) => {
-      tx.objectStore(STORE_SAVED).clear()
-    })
-  }
-
-  close(): void {
-    this.db.close()
-  }
-}
-
-export async function migrateLegacyStorage(
-  db: RepoDatabase,
-  storage: Storage | null,
-): Promise<{ seen: number; saved: number }> {
-  if (!storage) return { seen: 0, saved: 0 }
-
-  try {
-    if (storage.getItem(MIGRATED_KEY) === '1') {
-      return { seen: 0, saved: 0 }
-    }
-  } catch {
-    return { seen: 0, saved: 0 }
-  }
-
-  const seenMap = new Map<string, TrendshiftRepo>()
-  const savedMap = new Map<string, TrendshiftRepo>()
-
-  // 1. Parse seen_details
-  try {
-    const rawSeenDetails = storage.getItem('seen_details')
-    if (rawSeenDetails) {
-      const parsed = JSON.parse(rawSeenDetails)
-      if (Array.isArray(parsed)) {
-        for (const item of parsed) {
-          if (Array.isArray(item) && item.length >= 2 && typeof item[0] === 'string') {
-            const normalized = normalizeRepo(item[1])
-            if (normalized) {
-              const key = item[0].trim().toLowerCase()
-              seenMap.set(key, normalized)
-            }
-          }
-        }
-      }
-    }
-  } catch {}
-
-  // 2. Parse seen_repos fallback
-  try {
-    const rawSeenRepos = storage.getItem('seen_repos')
-    if (rawSeenRepos) {
-      const parsed = JSON.parse(rawSeenRepos)
-      if (Array.isArray(parsed)) {
-        for (const item of parsed) {
-          if (typeof item === 'string' && item.trim()) {
-            const key = item.trim().toLowerCase()
-            if (!seenMap.has(key)) {
-              const stub = normalizeRepo(createStubRepo(item.trim()))
-              if (stub) {
-                seenMap.set(key, stub)
-              }
-            }
-          }
-        }
-      }
-    }
-  } catch {}
-
-  // 3. Parse saved_repos
-  try {
-    const rawSavedRepos = storage.getItem('saved_repos')
-    if (rawSavedRepos) {
-      const parsed = JSON.parse(rawSavedRepos)
-      if (Array.isArray(parsed)) {
-        for (const item of parsed) {
-          if (Array.isArray(item) && item.length >= 2 && typeof item[0] === 'string') {
-            const normalized = normalizeRepo(item[1])
-            if (normalized) {
-              const key = item[0].trim().toLowerCase()
-              savedMap.set(key, normalized)
-            }
-          } else if (item && typeof item === 'object') {
-            const normalized = normalizeRepo(item)
-            if (normalized) {
-              savedMap.set(normalized.full_name.toLowerCase(), normalized)
-            }
-          }
-        }
-      }
-    }
-  } catch {}
-
-  const baseTimestamp = Date.now()
-  const seenEntries: SeenEntry[] = Array.from(seenMap.entries()).map(
-    ([key, repo], index) => ({
-      key,
-      repo,
-      seenAt: baseTimestamp + index,
-    }),
-  )
-
-  const savedEntries: SavedEntry[] = Array.from(savedMap.entries()).map(
-    ([key, repo], index) => ({
-      key,
-      repo,
-      savedAt: baseTimestamp + index,
-    }),
-  )
-
-  if (seenEntries.length > 0) {
-    await db.replaceSeen(seenEntries)
-  }
-  if (savedEntries.length > 0) {
-    await db.replaceSaved(savedEntries)
-  }
-
-  try {
-    storage.removeItem('seen_details')
-    storage.removeItem('seen_repos')
-    storage.removeItem('saved_repos')
-    storage.setItem(MIGRATED_KEY, '1')
-  } catch {}
-
-  return {
-    seen: seenEntries.length,
-    saved: savedEntries.length,
   }
 }

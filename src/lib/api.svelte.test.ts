@@ -17,7 +17,6 @@ class MemoryPersistence implements RepoPersistence {
   async clearSeen() {}
   async putSaved() {}
   async deleteSaved() {}
-  async replaceSaved() {}
   async clearSaved() {}
 }
 
@@ -120,6 +119,38 @@ describe('RepoFeed catalog-derived state', () => {
     expect(feed.catalog.map((r) => r.full_name)).toEqual(['rust/repo'])
   })
 
+  it('keeps the previous catalog and reports the first failure on a total outage', async () => {
+    const seen = await createStoreWithSeen()
+    let online = true
+    const client: CatalogFetcher = async () =>
+      online
+        ? { catalog: makeRepos(2), successfulTimeframes: ['daily'], failures: [] }
+        : {
+            catalog: [],
+            successfulTimeframes: [],
+            failures: [
+              { timeframe: 'daily', message: 'HTTP 503: Service Unavailable' },
+              { timeframe: 'weekly', message: 'Failed to fetch' },
+              { timeframe: 'monthly', message: 'Failed to fetch' },
+            ],
+          }
+
+    const feed = new RepoFeed(client, seen)
+    await feed.fetchFeed()
+    expect(feed.catalog).toHaveLength(2)
+
+    online = false
+    await feed.fetchFeed()
+
+    expect(feed.catalog.map((repo) => repo.full_name)).toEqual([
+      'owner/repo-0',
+      'owner/repo-1',
+    ])
+    expect(feed.successfulTimeframes).toEqual(['daily'])
+    expect(feed.error).toBe('HTTP 503: Service Unavailable')
+    expect(feed.loading).toBe(false)
+  })
+
   it('shows partial source state without discarding successful data', async () => {
     const seen = await createStoreWithSeen()
     const client: CatalogFetcher = async () => ({
@@ -133,6 +164,5 @@ describe('RepoFeed catalog-derived state', () => {
 
     expect(feed.catalog).toHaveLength(1)
     expect(feed.successfulTimeframes).toEqual(['daily', 'weekly'])
-    expect(feed.partialWarning).toContain('monthly')
   })
 })

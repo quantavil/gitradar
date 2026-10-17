@@ -68,19 +68,28 @@
 
   $effect(() => {
     if (!containerRef || typeof window === 'undefined') return
-    const updateTop = () => {
+    let frame: number | null = null
+    const applyTop = () => {
       if (containerRef) {
         const rect = containerRef.getBoundingClientRect()
         listTop = rect.top + window.scrollY
       }
     }
-    updateTop()
+    const updateTop = () => {
+      if (frame !== null) return
+      frame = window.requestAnimationFrame(() => {
+        frame = null
+        applyTop()
+      })
+    }
+    applyTop()
     const observer = new ResizeObserver(updateTop)
     observer.observe(containerRef)
     window.addEventListener('resize', updateTop)
     return () => {
       observer.disconnect()
       window.removeEventListener('resize', updateTop)
+      if (frame !== null) window.cancelAnimationFrame(frame)
     }
   })
 </script>

@@ -18,11 +18,11 @@
 - `src/lib/saved-sort.ts`: Daily-equivalent star growth calculation and multi-criteria sorting for saved bookmarks.
 - `src/lib/history-import.ts`: Atomic, validated import parser supporting all legacy history shapes up to 2 MiB.
 - `src/lib/RepoItem.svelte`: Shared canonical card component with single-border utilitarian styling and sanitized GitHub URLs.
-- `src/lib/RepoCard.svelte`: Swipeable card wrapper with scroll-past intersection observer.
-- `src/lib/ConfirmModal.svelte`: Native `<dialog>` modal with `inert` backdrop trapping, focus trap, and Escape handling.
+- `src/lib/RepoCard.svelte`: Swipeable card with save and seen actions. Scroll-past is measured by `VirtualFeed.svelte` through `scroll-past.ts`; there is no IntersectionObserver.
+- `src/lib/ConfirmModal.svelte`: Native `<dialog>` confirmation modal. It moves to `document.body`, marks the app shell `inert` while open, restores focus, and Escape cancels it.
 - `src/lib/LanguageSelect.svelte`: Combobox dropdown with `aria-activedescendant`, Home/End keys, and prefix typeahead.
-- `src/lib/Navbar.svelte`: Sticky navigation header with `<nav aria-label="Primary">` and `aria-current="page"`.
-- `src/lib/hotkeys.ts`: Keyboard shortcut bindings (<kbd>1</kbd>–<kbd>4</kbd>, <kbd>Shift+?</kbd>, <kbd>J</kbd>, <kbd>K</kbd>, <kbd>S</kbd>, <kbd>D</kbd>, <kbd>U</kbd>, <kbd>Esc</kbd>) with modal and input guards.
+- `src/lib/Navbar.svelte`: Sticky header (`data-site-header`, measured for the feed offset) with a labeled `<nav aria-label="Primary">`; the active view has `aria-current="page"`.
+- `src/lib/hotkeys.ts`: Keyboard shortcut bindings (<kbd>1</kbd>–<kbd>4</kbd>, <kbd>Shift+?</kbd>, <kbd>J</kbd>, <kbd>K</kbd>, <kbd>S</kbd>, <kbd>D</kbd>, <kbd>U</kbd>, <kbd>Esc</kbd>) with modal and input guards. Single-key shortcuts can be turned off (preference `repo_radar_shortcuts`); Escape always works.
 
 ---
 
@@ -35,7 +35,7 @@
 - **Mobile Touch Gesture Collision**: Swiping cards horizontally without `style="touch-action: pan-y"` collided with browser vertical scrolling. Fixed by applying `touch-action: pan-y` and `e.preventDefault()` during active horizontal swipe.
 - **Explicit Dismiss State Flip**: `handleExplicitDismiss` called `toggleSeen` instead of `markSeen`, un-marking previously seen repos when dismissed. Fixed by explicitly calling `markSeen(repo)`.
 - **Swipe Overlay Text Contrast**: Light mode swipe action text on green/red background had 1.4:1 contrast (`text-zinc-950`). Fixed by setting `text-white dark:text-zinc-950`.
-- **Unmounted Card Auto-Seen Trigger**: `IntersectionObserver` callback in `RepoCard.svelte` triggered on card unmount when switching views. Fixed by checking `entry.target.isConnected`.
+- **Unmounted Card Auto-Seen Trigger**: `IntersectionObserver` callback in `RepoCard.svelte` triggered on card unmount when switching views. Fixed by checking `entry.target.isConnected`. (Historical: the IntersectionObserver was later replaced by scroll measurement in `VirtualFeed.svelte`.)
 - **Malformed Storage Parse Crash**: `JSON.parse` of `localStorage` threw `TypeError` on non-tuple array items. Fixed by checking `Array.isArray(item) && item.length >= 2`.
 - **Hotkey Leak Behind Open Modals**: Global hotkeys (<kbd>1</kbd>–<kbd>4</kbd>, <kbd>S</kbd>, <kbd>D</kbd>) remained active while modal dialogs were open. Fixed by checking for active modal dialogs in global listener.
 - **Unfocused Hotkey Target Defaulting**: Pressing <kbd>S</kbd> or <kbd>D</kbd> without explicit card focus (`focusedIndex === -1`) defaulted to `repos[0]`. Fixed with explicit `focusedIndex < 0` guard.
@@ -50,5 +50,5 @@
 
 ## File Structure & Map
 - `src/lib/storage/`: IndexedDB repository storage and synchronous preferences helpers.
-- `src/lib/icons/`: Reusable, typed SVG icon components and index exports.
+- `src/lib/icons/`: Typed SVG icon components, re-exported by `src/lib/icons.ts` (import from `./icons`).
 - `src/app.css`: Tailwind v4 base styles, Geist typography, physical `<kbd>` styling, micro-animations, minimal scrollbars.

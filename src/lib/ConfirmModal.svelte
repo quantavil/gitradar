@@ -1,12 +1,19 @@
-<script lang="ts">
-  import { CloseIcon } from './icons'
+<script module lang="ts">
+  import Icon from './Icon.svelte'
+  // Unique id source for each instance's title and description.
+  let instanceCount = 0
+  // Number of open confirm dialogs holding the app shell inert. The shell is
+  // released only when the last holder lets go.
+  let inertHolders = 0
+</script>
 
+<script lang="ts">
+  import { untrack } from 'svelte'
   let {
     isOpen = false,
     title = 'Confirm Action',
     message = 'Are you sure you want to proceed?',
     confirmText = 'Confirm',
-    confirmVariant = 'danger',
     onConfirm,
     onClose,
   } = $props<{
@@ -14,34 +21,67 @@
     title?: string
     message?: string
     confirmText?: string
-    confirmVariant?: 'danger' | 'primary'
     onConfirm: () => void
     onClose: () => void
   }>()
 
+  instanceCount += 1
+  const titleId = `confirm-title-${instanceCount}`
+  const descriptionId = `confirm-desc-${instanceCount}`
+
   let dialogRef = $state<HTMLDialogElement | null>(null)
   let cancelBtnRef = $state<HTMLButtonElement | null>(null)
-  let previousActiveElement: HTMLElement | null = null
+  let returnFocusTo: HTMLElement | null = null
+  let holdsInert = false
 
+  function lockAppShell() {
+    if (holdsInert || typeof document === 'undefined') return
+    holdsInert = true
+    inertHolders += 1
+    document.querySelector<HTMLElement>('[data-app-shell]')?.setAttribute('inert', '')
+  }
+
+  function releaseAppShell() {
+    if (!holdsInert) return
+    holdsInert = false
+    inertHolders = Math.max(0, inertHolders - 1)
+    if (inertHolders === 0 && typeof document !== 'undefined') {
+      document.querySelector<HTMLElement>('[data-app-shell]')?.removeAttribute('inert')
+    }
+  }
+
+  // Move the dialog under <body>. The app shell is inert while the dialog is
+  // open, and a dialog inside an inert ancestor is unreliable across browsers.
   $effect(() => {
-    if (typeof document === 'undefined' || !dialogRef) return
-    const appShell = document.querySelector('[data-app-shell]') as HTMLElement | null
+    const dialog = dialogRef
+    if (!dialog || typeof document === 'undefined') return
+    document.body.appendChild(dialog)
+    return () => {
+      if (dialog.open) dialog.close()
+      dialog.remove()
+    }
+  })
 
-    if (isOpen) {
-      previousActiveElement = document.activeElement as HTMLElement | null
-      if (appShell) appShell.setAttribute('inert', '')
-      if (!dialogRef.open) {
-        dialogRef.showModal()
-      }
+  // Open while isOpen is true. The cleanup runs when isOpen turns false and on
+  // destroy, so the shell is always released and focus is returned.
+  $effect(() => {
+    const dialog = dialogRef
+    if (!isOpen || !dialog) return
+
+    untrack(() => {
+      returnFocusTo = document.activeElement as HTMLElement | null
+      lockAppShell()
+      if (!dialog.open) dialog.showModal()
       cancelBtnRef?.focus()
-    } else {
-      if (dialogRef.open) {
-        dialogRef.close()
-      }
-      if (appShell) appShell.removeAttribute('inert')
-      if (previousActiveElement && typeof previousActiveElement.focus === 'function') {
-        previousActiveElement.focus()
-      }
+    })
+
+    return () => {
+      if (dialog.open) dialog.close()
+      releaseAppShell()
+      const target = returnFocusTo
+      returnFocusTo = null
+      // Restore focus only if the element still exists in the document.
+      if (target?.isConnected) target.focus()
     }
   })
 
@@ -55,55 +95,56 @@
     e.preventDefault()
     onClose()
   }
+
+  function handleConfirm() {
+    onConfirm()
+    onClose()
+  }
 </script>
 
 <dialog
   bind:this={dialogRef}
   oncancel={handleCancelEvent}
   onclick={handleBackdropClick}
-  aria-labelledby="confirm-modal-title"
-  aria-describedby="confirm-modal-description"
-  class="backdrop:bg-black/60 backdrop:backdrop-blur-xl bg-transparent p-4 max-w-sm w-full m-auto border-none focus:outline-none"
+  aria-labelledby={titleId}
+  aria-describedby={descriptionId}
+  class="m-auto w-full max-w-sm border-none bg-transparent p-4 text-left backdrop:bg-black/60 backdrop:backdrop-blur-xl"
 >
-  <div class="popover-animate w-full bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-lg shadow-xl p-5 space-y-4 font-sans text-left">
+  <div class="popover-animate w-full space-y-4 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-5 font-sans shadow-[var(--card-shadow-lift)]">
     <!-- Header -->
-    <div class="flex items-center justify-between border-b border-[var(--border-subtle)] pb-3">
-      <h3 id="confirm-modal-title" class="font-semibold text-sm text-[var(--text-main)] font-display tracking-tight">
+    <div class="flex items-start justify-between gap-3 border-b border-[var(--border-subtle)] pb-3">
+      <h3 id={titleId} class="font-display text-lg font-semibold leading-tight tracking-tight text-[var(--text-main)]">
         {title}
       </h3>
       <button
+        type="button"
         onclick={onClose}
-        class="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-canvas)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)]"
+        class="-my-1 -mr-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)] sm:h-8 sm:w-8"
         aria-label="Close modal"
       >
-        <CloseIcon size={15} aria-hidden="true" />
+        <Icon name="close" size={16} aria-hidden="true" />
       </button>
     </div>
 
     <!-- Content -->
-    <p id="confirm-modal-description" class="text-xs text-[var(--text-muted)] leading-relaxed">
+    <p id={descriptionId} class="text-sm leading-relaxed text-[var(--text-muted)]">
       {message}
     </p>
 
     <!-- Actions -->
-    <div class="pt-2 flex items-center justify-end gap-2 border-t border-[var(--border-subtle)] font-mono text-xs">
+    <div class="flex items-center justify-end gap-2 border-t border-[var(--border-subtle)] pt-3">
       <button
+        type="button"
         bind:this={cancelBtnRef}
         onclick={onClose}
-        class="px-3.5 py-1.5 bg-[var(--bg-canvas)] text-[var(--text-main)] border border-[var(--border-subtle)] rounded-md font-medium hover:border-[var(--border-strong)] transition-colors btn-press active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)]"
+        class="btn-press inline-flex min-h-10 items-center justify-center rounded-md border border-[var(--control-border)] bg-transparent px-4 text-sm font-medium text-[var(--text-main)] transition-colors hover:bg-[var(--bg-surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)]"
       >
         Cancel
       </button>
       <button
-        onclick={() => {
-          onConfirm()
-          onClose()
-        }}
-        class="px-3.5 py-1.5 rounded-md font-semibold transition-all btn-press active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)] {
-          confirmVariant === 'danger'
-            ? 'bg-[var(--badge-red-bg)] text-[var(--badge-red-text)] border border-[var(--badge-red-text)]/30 hover:opacity-90'
-            : 'bg-[var(--accent-signal)] text-white dark:text-zinc-950 hover:opacity-90'
-        }"
+        type="button"
+        onclick={handleConfirm}
+        class="btn-press inline-flex min-h-10 items-center justify-center rounded-md px-4 text-sm font-semibold transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)] bg-[var(--badge-red-text)] text-[var(--bg-surface)]"
       >
         {confirmText}
       </button>

@@ -34,32 +34,38 @@ describe('history import', () => {
     }
   })
 
-  it('allows an empty array import', () => {
-    const res = parseHistoryImport('[]')
-    expect(res).toEqual({ ok: true, entries: [], count: 0 })
+  it('rejects an empty array so an accidental empty file cannot clear history', () => {
+    expect(parseHistoryImport('[]')).toEqual({
+      ok: false,
+      error: 'History file has no entries.',
+    })
   })
 
-  it('normalizes tuple, string, and object legacy entries atomically', () => {
-    const data = [
-      ['owner/repo-1', makeRepo(1)],
-      'owner/repo-2',
-      makeRepo(3, { full_name: 'owner/repo-3' }),
-      'owner/repo-1', // duplicate, should dedupe
-    ]
-
-    const res = parseHistoryImport(JSON.stringify(data), () => 1000)
+  it('keys entries by repository name, case-insensitively, keeping the first occurrence', () => {
+    const res = parseHistoryImport(
+      JSON.stringify([makeRepo(1, { full_name: 'Owner/Repo-1' }), makeRepo(1)]),
+      () => 1000,
+    )
     expect(res.ok).toBe(true)
     if (res.ok) {
-      expect(res.count).toBe(3)
-      expect(res.entries).toHaveLength(3)
-      expect(res.entries.map((e: SeenEntry) => e.key)).toEqual([
-        'owner/repo-1',
-        'owner/repo-2',
-        'owner/repo-3',
-      ])
-      expect(res.entries[0].repo.github_url).toBe('https://github.com/owner/repo-1')
-      expect(res.entries[1].repo.full_name).toBe('owner/repo-2')
-      expect(res.entries[2].repo.full_name).toBe('owner/repo-3')
+      expect(res.count).toBe(1)
+      expect(res.entries[0].key).toBe('owner/repo-1')
+      expect(res.entries[0].repo.full_name).toBe('Owner/Repo-1')
+    }
+  })
+
+  it('uses an exported seenAt and falls back to import order when it is missing or invalid', () => {
+    const res = parseHistoryImport(
+      JSON.stringify([
+        { ...makeRepo(1), seenAt: 42 },
+        makeRepo(2),
+        { ...makeRepo(3), seenAt: 'soon' },
+      ]),
+      () => 1000,
+    )
+    expect(res.ok).toBe(true)
+    if (res.ok) {
+      expect(res.entries.map((e: SeenEntry) => e.seenAt)).toEqual([42, 1001, 1002])
     }
   })
 })

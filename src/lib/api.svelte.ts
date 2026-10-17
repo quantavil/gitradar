@@ -11,7 +11,6 @@ export type CatalogFetcher = (
 export class RepoFeed {
   catalog = $state<TrendshiftRepo[]>([])
   successfulTimeframes = $state<Timeframe[]>([])
-  partialWarning = $state<string | null>(null)
   loading = $state<boolean>(false)
   error = $state<string | null>(null)
   selectedLanguage = $state<LanguageOption>('all')
@@ -42,10 +41,6 @@ export class RepoFeed {
     return this.repos.length
   }
 
-  get activeTimeframe(): string {
-    return this.successfulTimeframes[0] ?? 'daily'
-  }
-
   async setLanguage(lang: LanguageOption) {
     this.selectedLanguage = lang
     writeLanguagePreference(lang)
@@ -68,7 +63,6 @@ export class RepoFeed {
 
     this.loading = true
     this.error = null
-    this.partialWarning = null
 
     try {
       const result = await this.client(this.selectedLanguage, {
@@ -77,25 +71,23 @@ export class RepoFeed {
 
       if (fetchId !== this._fetchId) return
 
+      if (result.successfulTimeframes.length === 0) {
+        // Total outage: keep the last good feed and surface the first real cause.
+        this.error =
+          result.failures[0]?.message ||
+          'Failed to load repository feed. Please check your network connection and try again.'
+        return
+      }
+
       this.catalog = result.catalog
       this.successfulTimeframes = result.successfulTimeframes
 
-      if (result.failures.length > 0) {
-        const failedNames = result.failures.map((f: { timeframe: Timeframe; message: string }) => f.timeframe).join(', ')
-        this.partialWarning = `Could not load ${failedNames} timeframe data.`
-      }
-
-      if (result.successfulTimeframes.length === 0) {
-        this.error =
-          'Failed to load repository feed. Please check your network connection and try again.'
-      } else {
-        this.error = null
-        const seenInCatalog = result.catalog.filter((repo: TrendshiftRepo) =>
-          this.seenStore.isSeen(repo.full_name),
-        )
-        if (seenInCatalog.length > 0) {
-          void this.seenStore.enrichSeenDetails(seenInCatalog)
-        }
+      this.error = null
+      const seenInCatalog = result.catalog.filter((repo: TrendshiftRepo) =>
+        this.seenStore.isSeen(repo.full_name),
+      )
+      if (seenInCatalog.length > 0) {
+        void this.seenStore.enrichSeenDetails(seenInCatalog)
       }
     } catch (err: unknown) {
       if (fetchId !== this._fetchId) return

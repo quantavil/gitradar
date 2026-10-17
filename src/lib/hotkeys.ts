@@ -5,7 +5,6 @@ export interface HotkeyActions {
   onPrev: () => void;
   onSave: () => void;
   onDismiss: () => void;
-  onReset?: () => void;
   onUndo?: () => void;
   onViewFeed?: () => void;
   onViewSaved?: () => void;
@@ -14,7 +13,15 @@ export interface HotkeyActions {
   onEscape?: () => void;
 }
 
-export function setupHotkeys(actions: HotkeyActions) {
+export interface HotkeyOptions {
+  /**
+   * Whether single-key (character) shortcuts are active. Escape is always active.
+   * Lets users turn off character keys (WCAG 2.1.4 Character Key Shortcuts).
+   */
+  characterShortcutsEnabled?: () => boolean;
+}
+
+export function setupHotkeys(actions: HotkeyActions, options: HotkeyOptions = {}) {
   const handlerMap: Record<string, (e: KeyboardEvent) => void> = {
     j: () => actions.onNext(),
     k: () => actions.onPrev(),
@@ -37,6 +44,7 @@ export function setupHotkeys(actions: HotkeyActions) {
   const listener = (e: KeyboardEvent) => {
     // Check if any modal dialog or dropdown menu is currently open in the DOM
     const isModalOpen = typeof document !== 'undefined' && (
+      !!document.querySelector('dialog[open]') ||
       !!document.querySelector('[role="dialog"]') ||
       !!document.querySelector('[aria-modal="true"]') ||
       !!document.querySelector('[role="listbox"]')
@@ -54,13 +62,20 @@ export function setupHotkeys(actions: HotkeyActions) {
       target.tagName === 'TEXTAREA' ||
       (target as HTMLElement).isContentEditable ||
       !!target.closest('[contenteditable="true"]') ||
-      ['textbox', 'combobox', 'searchbox'].includes(target.getAttribute('role') || '')
+      // A combobox trigger (for example the language picker button) is not text entry.
+      // Its open listbox is handled by the [role="listbox"] guard above.
+      ['textbox', 'searchbox'].includes(target.getAttribute('role') || '')
     );
 
     if (isInput) {
       if (e.key === 'Escape' && target instanceof HTMLElement) {
         target.blur();
       }
+      return;
+    }
+
+    const characterShortcutsOn = options.characterShortcutsEnabled?.() ?? true;
+    if (e.key !== 'Escape' && !characterShortcutsOn) {
       return;
     }
 

@@ -1,13 +1,23 @@
+<script module lang="ts">
+  import Icon from './Icon.svelte'
+  // Keyboard focus follows the focused card only after the user has interacted with the page,
+  // so the first render never steals focus.
+  let userHasInteracted = false;
+  if (typeof window !== 'undefined') {
+    const markInteracted = () => {
+      userHasInteracted = true;
+    };
+    window.addEventListener('keydown', markInteracted, { capture: true, once: true });
+    window.addEventListener('pointerdown', markInteracted, { capture: true, once: true });
+  }
+</script>
+
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { untrack } from 'svelte';
   import type { TrendshiftRepo } from './types';
   import { seenStore } from './seen.svelte';
   import RepoItem from './RepoItem.svelte';
-  import {
-    BookmarkIcon,
-    CheckIcon
-  } from './icons';
-
+  
   let {
     repo,
     index,
@@ -20,7 +30,7 @@
     onExplicitDismiss?: (repo: TrendshiftRepo) => void;
   }>();
 
-  let cardRef: HTMLElement | null = null;
+  let cardRef: HTMLElement | null = $state(null);
 
   // Touch Swipe Gesture State
   let startX = 0;
@@ -33,11 +43,12 @@
   let isSaved = $derived(seenStore.isSaved(repo.full_name));
 
   let swipeStyle = $derived.by(() => {
-    let style = `touch-action: pan-y; transform: translateX(${deltaX}px);`;
+    let style = seenStore.swipeGesturesEnabled ? 'touch-action: pan-y; ' : '';
+    style += `transform: translateX(${deltaX}px);`;
     if (isSwiping) {
       style += ' transition: none;';
     } else {
-      style += ' transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);';
+      style += ' transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);';
     }
     return style;
   });
@@ -50,11 +61,68 @@
     }
   }
 
-  onMount(() => {
-    if (!cardRef || typeof window === 'undefined') return;
+  // Seen toggles: an already-seen card is restored, any other card is marked seen.
+  function toggleSeen() {
+    if (isSeen) {
+      void seenStore.unsee(repo.full_name);
+    } else {
+      triggerDismiss();
+    }
+  }
+
+  function isTextEntry(element: Element | null) {
+    return element instanceof HTMLElement && (element.isContentEditable || element.matches('input, textarea, select'));
+  }
+
+  // Moving the focused highlight moves DOM focus onto the card, so removing a control does not drop focus to the body.
+  $effect(() => {
+    const card = cardRef;
+    if (!isFocused || !card || !userHasInteracted) return;
+    untrack(() => {
+      if (card.contains(document.activeElement)) return;
+      if (isTextEntry(document.activeElement)) return;
+      card.focus({ preventScroll: true });
+    });
+  });
+
+  // Swipe listeners exist only while gestures are enabled, so disabled cards keep native scrolling.
+  $effect(() => {
+    const card = cardRef;
+    if (!card || !seenStore.swipeGesturesEnabled) return;
+
+    const endGesture = () => {
+      isSwiping = false;
+      isHorizontalSwipe = false;
+      deltaX = 0;
+      card.removeEventListener('touchmove', handleTouchMove);
+    };
+
+    // Non-passive only while a gesture is in flight. It is removed once the gesture turns vertical.
+    const handleTouchMove = (e: TouchEvent) => {
+      const touch = e.touches[0];
+      if (!isSwiping || !touch) return;
+
+      const diffX = touch.clientX - startX;
+      const diffY = touch.clientY - startY;
+
+      if (!isHorizontalSwipe) {
+        if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 8) {
+          isHorizontalSwipe = true;
+        } else if (Math.abs(diffY) > 8) {
+          endGesture();
+          return;
+        } else {
+          return;
+        }
+      }
+
+      if (e.cancelable) {
+        e.preventDefault();
+      }
+      deltaX = diffX;
+    };
 
     const handleTouchStart = (e: TouchEvent) => {
-      if (!seenStore.swipeGesturesEnabled) return;
       if (e.touches.length !== 1) return;
 
       startX = e.touches[0].clientX;
@@ -62,66 +130,32 @@
       isSwiping = true;
       isHorizontalSwipe = false;
       deltaX = 0;
-    };
-
-    const handleTouchMove = (e: TouchEvent) => {
-      if (!seenStore.swipeGesturesEnabled || !isSwiping) return;
-
-      const currentX = e.touches[0].clientX;
-      const currentY = e.touches[0].clientY;
-      const diffX = currentX - startX;
-      const diffY = currentY - startY;
-
-      // Lock vertical scroll if horizontal swipe intent detected
-      if (!isHorizontalSwipe) {
-        if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 8) {
-          isHorizontalSwipe = true;
-        } else if (Math.abs(diffY) > 8) {
-          isSwiping = false;
-          deltaX = 0;
-          return;
-        }
-      }
-
-      if (isHorizontalSwipe) {
-        if (e.cancelable) {
-          e.preventDefault();
-        }
-        deltaX = diffX;
-      }
+      card.addEventListener('touchmove', handleTouchMove, { passive: false });
     };
 
     const handleTouchEnd = () => {
-      if (!seenStore.swipeGesturesEnabled || !isSwiping) {
-        isSwiping = false;
-        deltaX = 0;
-        return;
-      }
-
       const THRESHOLD = 100;
 
-      if (deltaX > THRESHOLD) {
-        void seenStore.toggleSave(repo);
-      } else if (deltaX < -THRESHOLD) {
-        triggerDismiss();
+      if (isSwiping) {
+        if (deltaX > THRESHOLD) {
+          void seenStore.toggleSave(repo);
+        } else if (deltaX < -THRESHOLD) {
+          toggleSeen();
+        }
       }
-
-      isSwiping = false;
-      deltaX = 0;
+      endGesture();
     };
 
-    cardRef.addEventListener('touchstart', handleTouchStart, { passive: true });
-    cardRef.addEventListener('touchmove', handleTouchMove, { passive: false });
-    cardRef.addEventListener('touchend', handleTouchEnd, { passive: true });
-    cardRef.addEventListener('touchcancel', handleTouchEnd, { passive: true });
+    card.addEventListener('touchstart', handleTouchStart, { passive: true });
+    card.addEventListener('touchend', handleTouchEnd, { passive: true });
+    // A cancelled touch only resets the gesture. It never saves or dismisses.
+    card.addEventListener('touchcancel', endGesture, { passive: true });
 
     return () => {
-      if (cardRef) {
-        cardRef.removeEventListener('touchstart', handleTouchStart);
-        cardRef.removeEventListener('touchmove', handleTouchMove);
-        cardRef.removeEventListener('touchend', handleTouchEnd);
-        cardRef.removeEventListener('touchcancel', handleTouchEnd);
-      }
+      card.removeEventListener('touchstart', handleTouchStart);
+      card.removeEventListener('touchend', handleTouchEnd);
+      card.removeEventListener('touchcancel', endGesture);
+      endGesture();
     };
   });
 
@@ -132,16 +166,16 @@
 
   function handleSeenClick(e: MouseEvent) {
     e.stopPropagation();
-    triggerDismiss();
+    toggleSeen();
   }
 </script>
 
-<div class="relative rounded-lg overflow-hidden">
+<div class="relative rounded-xl">
   <!-- Underlying Action Background Layer -->
   <div
-    class="absolute inset-0 rounded-lg overflow-hidden flex items-center justify-between px-6 transition-all duration-150 {
+    class="absolute inset-0 rounded-xl overflow-hidden flex items-center justify-between px-6 transition-all duration-150 {
       deltaX > 0
-        ? 'bg-emerald-600 opacity-100'
+        ? 'bg-emerald-700 opacity-100'
         : deltaX < 0
           ? 'bg-rose-600 opacity-100'
           : 'bg-transparent opacity-0 pointer-events-none'
@@ -149,14 +183,14 @@
   >
     <!-- Right Swipe Action (Bookmark) -->
     <div class="flex items-center gap-2 text-white font-bold text-sm select-none">
-      <BookmarkIcon size={18} class="text-white" />
+      <Icon name="bookmark" size={18} class="text-white" />
       <span>{isSaved ? 'Unbookmark' : 'Bookmark'}</span>
     </div>
 
     <!-- Left Swipe Action (Seen / Unseen) -->
     <div class="flex items-center gap-2 text-white font-bold text-sm select-none">
       <span>{isSeen ? 'Unseen' : 'Seen'}</span>
-      <CheckIcon size={18} class="text-white" />
+      <Icon name="check" size={18} class="text-white" />
     </div>
   </div>
 
@@ -167,7 +201,7 @@
     tabindex={isFocused ? 0 : -1}
     aria-label="{repo.full_name} repository"
     style={swipeStyle}
-    class="relative z-10 focus-visible:outline-none rounded-lg"
+    class="relative z-10 focus-visible:outline-none rounded-xl"
   >
     <RepoItem
       {repo}
@@ -178,30 +212,36 @@
       {#snippet actions()}
         <!-- Save Bookmark Button -->
         <button
+          type="button"
           onclick={handleSaveClick}
-          aria-label={isSaved ? `Remove ${repo.full_name} bookmark` : `Save ${repo.full_name} bookmark`}
-          title={isSaved ? "Unsave Bookmark (S)" : "Save Bookmark (S)"}
-          class="p-2 sm:p-1.5 min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 rounded border transition-all btn-press active:scale-95 flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)] {
+          aria-label={isSaved ? `Saved: remove ${repo.full_name} bookmark` : `Save ${repo.full_name} bookmark`}
+          aria-pressed={isSaved ? 'true' : 'false'}
+          title={isSaved ? 'Remove bookmark (S)' : 'Save bookmark (S)'}
+          class="inline-flex items-center gap-1.5 min-h-11 sm:min-h-9 px-2.5 rounded-md border font-sans text-xs font-medium btn-press focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-surface)] {
             isSaved
               ? 'bg-[var(--accent-signal-soft-bg)] text-[var(--accent-signal-soft-text)] border-[var(--accent-signal)]/50'
               : 'bg-[var(--bg-surface)] text-[var(--text-muted)] border-[var(--border-subtle)] hover:text-[var(--text-main)] hover:border-[var(--border-strong)]'
           }"
         >
-          <BookmarkIcon size={14} filled={isSaved} aria-hidden="true" />
+          <Icon name="bookmark" size={15} filled={isSaved} aria-hidden="true" />
+          <span>{isSaved ? 'Saved' : 'Save'}</span>
         </button>
 
-        <!-- Mark Seen Button -->
+        <!-- Seen Toggle Button -->
         <button
+          type="button"
           onclick={handleSeenClick}
-          aria-label="Mark {repo.full_name} as seen"
-          title="Mark Seen (D)"
-          class="p-2 sm:p-1.5 min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 rounded border transition-all btn-press active:scale-95 flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)] {
+          aria-label={isSeen ? `Mark ${repo.full_name} as unseen` : `Mark ${repo.full_name} as seen`}
+          aria-pressed={isSeen ? 'true' : 'false'}
+          title={isSeen ? 'Mark unseen' : 'Mark seen (D)'}
+          class="inline-flex items-center gap-1.5 min-h-11 sm:min-h-9 px-2.5 rounded-md border font-sans text-xs font-medium btn-press focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-surface)] {
             isSeen
               ? 'bg-[var(--badge-green-bg)] text-[var(--badge-green-text)] border-[var(--badge-green-text)]/30'
               : 'bg-[var(--bg-surface)] text-[var(--text-muted)] border-[var(--border-subtle)] hover:text-[var(--badge-green-text)] hover:border-[var(--badge-green-text)]/30'
           }"
         >
-          <CheckIcon size={14} aria-hidden="true" />
+          <Icon name="check" size={15} aria-hidden="true" />
+          <span>{isSeen ? 'Unseen' : 'Seen'}</span>
         </button>
       {/snippet}
     </RepoItem>

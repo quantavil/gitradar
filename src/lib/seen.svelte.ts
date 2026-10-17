@@ -5,7 +5,7 @@ import {
   readBooleanPreference,
   writeBooleanPreference,
 } from './storage/preferences'
-import { migrateLegacyStorage, RepoDatabase } from './storage/repo-db'
+import { RepoDatabase } from './storage/repo-db'
 import type { SavedEntry, SeenEntry, TrendshiftRepo } from './types'
 
 export interface RepoPersistence {
@@ -17,7 +17,6 @@ export interface RepoPersistence {
   clearSeen(): Promise<void>
   putSaved(entry: SavedEntry): Promise<void>
   deleteSaved(key: string): Promise<void>
-  replaceSaved(entries: SavedEntry[]): Promise<void>
   clearSaved(): Promise<void>
 }
 
@@ -31,22 +30,23 @@ type RepoStateMessage =
 
 const CHANNEL_NAME = 'repo-radar-sync'
 
-function createStubRepo(fullName: string): TrendshiftRepo {
-  return {
-    rank: 0,
-    score: 0,
-    full_name: fullName,
-    github_url: 'https://github.com/' + fullName,
-    description: '',
-    language: '',
-    stars_total: 0,
-    stars_gained: 0,
-    forks_total: 0,
-    forks_gained: 0,
-    created_at: '',
-    tags: [],
-    social_mention_platforms: [],
-  }
+// Rows come straight from IndexedDB, so validate them before they reach the UI.
+function validSeenEntry(row: unknown): SeenEntry | null {
+  if (!row || typeof row !== 'object') return null
+  const { key, repo, seenAt } = row as Record<string, unknown>
+  const normalized = normalizeRepo(repo)
+  if (typeof key !== 'string' || !normalized) return null
+  if (typeof seenAt !== 'number' || !Number.isFinite(seenAt)) return null
+  return { key, repo: normalized, seenAt }
+}
+
+function validSavedEntry(row: unknown): SavedEntry | null {
+  if (!row || typeof row !== 'object') return null
+  const { key, repo, savedAt } = row as Record<string, unknown>
+  const normalized = normalizeRepo(repo)
+  if (typeof key !== 'string' || !normalized) return null
+  if (typeof savedAt !== 'number' || !Number.isFinite(savedAt)) return null
+  return { key, repo: normalized, savedAt }
 }
 
 export class SeenStore {
@@ -65,6 +65,7 @@ export class SeenStore {
   private persistence: RepoPersistence | null = null
   private now: () => number
   private channel: BroadcastChannel | null = null
+  private initPromise: Promise<void> | null = null
 
   constructor(
     persistence?: RepoPersistence,
@@ -190,11 +191,18 @@ export class SeenStore {
     }
   }
 
-  async init(): Promise<void> {
+  // Memoized so concurrent callers share one open, migration and load.
+  init(): Promise<void> {
+    if (!this.initPromise) {
+      this.initPromise = this.loadPersistedState()
+    }
+    return this.initPromise
+  }
+
+  private async loadPersistedState(): Promise<void> {
     try {
       if (!this.persistence && typeof indexedDB !== 'undefined') {
         const db = await RepoDatabase.open()
-        await migrateLegacyStorage(db, getBrowserStorage())
         this.persistence = db
       }
 
@@ -205,14 +213,16 @@ export class SeenStore {
         ])
 
         const seenMap = new Map<string, SeenEntry>()
-        for (const entry of seenList) {
-          seenMap.set(entry.key, entry)
+        for (const row of seenList) {
+          const entry = validSeenEntry(row)
+          if (entry) seenMap.set(entry.key, entry)
         }
         this.seenEntries = seenMap
 
         const savedMap = new Map<string, SavedEntry>()
-        for (const entry of savedList) {
-          savedMap.set(entry.key, entry)
+        for (const row of savedList) {
+          const entry = validSavedEntry(row)
+          if (entry) savedMap.set(entry.key, entry)
         }
         this.savedEntries = savedMap
       }
@@ -232,15 +242,10 @@ export class SeenStore {
     return this.savedEntries.has(this.normalizeKey(fullName))
   }
 
-  async markSeen(repoOrName: string | TrendshiftRepo): Promise<void> {
-    const isObj = typeof repoOrName !== 'string'
-    const fullName = isObj ? repoOrName.full_name : repoOrName
-    const key = this.normalizeKey(fullName)
-    if (!key) return
-
-    const normalizedRepo = isObj
-      ? (normalizeRepo(repoOrName) ?? createStubRepo(fullName))
-      : (this.seenEntries.get(key)?.repo ?? createStubRepo(fullName))
+  async markSeen(repo: TrendshiftRepo): Promise<void> {
+    const key = this.normalizeKey(repo.full_name)
+    const normalizedRepo = normalizeRepo(repo)
+    if (!key || !normalizedRepo) return
 
     const existing = this.seenEntries.get(key)
     const entry: SeenEntry = {
@@ -331,6 +336,9 @@ export class SeenStore {
       if (this.persistence) {
         try {
           for (const entry of updates) {
+            // Each await yields, so unsee/reset/markSeen can run mid-loop. Skip any
+            // snapshot that is no longer the live entry instead of resurrecting it.
+            if (this.seenEntries.get(entry.key) !== entry) continue
             await this.persistence.putSeen(entry)
           }
           this.persistenceError = null
@@ -347,7 +355,8 @@ export class SeenStore {
     if (this.savedEntries.has(key)) {
       await this.removeSaved(repo.full_name)
     } else {
-      const normalized = normalizeRepo(repo) ?? createStubRepo(repo.full_name)
+      const normalized = normalizeRepo(repo)
+      if (!normalized) return
       const entry: SavedEntry = {
         key,
         repo: normalized,
@@ -407,10 +416,6 @@ export class SeenStore {
     }
   }
 
-  createStubRepo(fullName: string): TrendshiftRepo {
-    return createStubRepo(fullName)
-  }
-
   async importHistoryJSON(jsonStr: string): Promise<{
     success: boolean
     count: number
@@ -444,20 +449,11 @@ export class SeenStore {
   }
 
   exportHistoryJSON(): string {
-    const entries = Array.from(this.seenEntries.values()).map((e) => [
-      e.key,
-      e.repo,
-    ])
+    const entries = Array.from(this.seenEntries.values()).map((e) => ({
+      ...e.repo,
+      seenAt: e.seenAt,
+    }))
     return JSON.stringify(entries, null, 2)
-  }
-
-  destroy(): void {
-    if (this.channel) {
-      try {
-        this.channel.close()
-      } catch {}
-      this.channel = null
-    }
   }
 }
 

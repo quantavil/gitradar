@@ -7,7 +7,7 @@ describe('trendshift client', () => {
     vi.restoreAllMocks()
   })
 
-  it('fetches all timeframes concurrently and preserves source priority', async () => {
+  it('fetches all timeframes and preserves source priority', async () => {
     const started: string[] = []
     vi.stubGlobal(
       'fetch',

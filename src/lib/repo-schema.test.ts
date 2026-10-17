@@ -31,7 +31,18 @@ describe('repository schema', () => {
     expect(result.repos).toHaveLength(1)
   })
 
-  it('never returns a non-GitHub scheme', () => {
-    expect(safeGithubUrl('owner/repo')).toBe('https://github.com/owner/repo')
+  it('rejects owner or repo segments that are exactly "." or ".."', () => {
+    for (const fullName of ['../x', 'x/..', './x', '../..']) {
+      expect(normalizeRepo({ ...makeRepo(1), full_name: fullName })).toBeNull()
+    }
+  })
+
+  it('still accepts names that merely start with a dot', () => {
+    expect(normalizeRepo({ ...makeRepo(1), full_name: 'owner/.github' })?.full_name).toBe(
+      'owner/.github',
+    )
+    expect(normalizeRepo({ ...makeRepo(1), full_name: 'owner/..hidden' })?.full_name).toBe(
+      'owner/..hidden',
+    )
   })
 })

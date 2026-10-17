@@ -1,12 +1,13 @@
 <script lang="ts">
+  import Icon from './Icon.svelte'
+  import { tick } from 'svelte'
   import { seenStore } from './seen.svelte'
   import ConfirmModal from './ConfirmModal.svelte'
   import VirtualRepoGrid from './VirtualRepoGrid.svelte'
   import type { TrendshiftRepo } from './types'
-  import { ClockIcon, UndoIcon } from './icons'
-
   let searchQuery = $state('')
   let isConfirmOpen = $state(false)
+  let emptyHeadingRef = $state<HTMLHeadingElement | null>(null)
 
   const seenList = $derived.by(() => {
     return Array.from(seenStore.seenEntries.values()).sort(
@@ -23,37 +24,41 @@
       if (repo) {
         const descMatch = repo.description?.toLowerCase().includes(q)
         const langMatch = repo.language?.toLowerCase().includes(q)
-        return descMatch || langMatch
+        const tagsMatch = repo.tags?.some((tag) => tag.toLowerCase().includes(q))
+        return descMatch || langMatch || tagsMatch
       }
       return false
     })
   })
 
-  function handleClearAllConfirmed() {
-    void seenStore.resetSeen()
+  async function handleClearAllConfirmed() {
+    const clearing = seenStore.resetSeen()
     searchQuery = ''
+    // The list empties synchronously, so the Clear History button is about to be removed.
+    // Move focus to the empty-state heading once the DOM reflects that.
+    await tick()
+    emptyHeadingRef?.focus()
+    await clearing
   }
 </script>
 
 <div class="space-y-5 flex flex-col flex-1">
   <!-- Controls Bar -->
-  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-lg shadow-[var(--card-shadow)] shrink-0">
-    <!-- Search Input -->
-    <div class="flex-1 min-w-0">
-      <input
-        type="text"
-        bind:value={searchQuery}
-        placeholder="Search seen repositories by name, language, or topic..."
-        class="w-full px-3 py-1.5 text-xs font-mono bg-[var(--bg-canvas)] text-[var(--text-main)] border border-[var(--border-subtle)] rounded focus:outline-none focus:border-[var(--accent-signal)] placeholder-[var(--text-muted)] transition-colors"
-        aria-label="Filter seen repositories"
-      />
-    </div>
+  <div class="flex flex-col sm:flex-row sm:items-center gap-2.5 sm:gap-3 p-3.5 sm:p-4 bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-lg shadow-[var(--card-shadow)] shrink-0">
+    <input
+      type="text"
+      bind:value={searchQuery}
+      placeholder="Search seen repositories by name, language, or topic..."
+      class="w-full sm:flex-1 sm:min-w-0 min-h-11 sm:min-h-10 px-3 py-2 text-sm font-sans bg-[var(--bg-surface)] text-[var(--text-main)] border border-[var(--control-border)] rounded-md placeholder:text-[var(--text-muted)] focus:border-[var(--accent-signal)] transition-colors"
+      aria-label="Filter seen repositories"
+    />
 
     {#if seenList.length > 0}
-      <div class="flex items-center gap-2 shrink-0 font-mono text-xs">
+      <div class="flex items-center gap-2 shrink-0">
         <button
+          type="button"
           onclick={() => (isConfirmOpen = true)}
-          class="px-2.5 py-1 bg-[var(--badge-red-bg)] text-[var(--badge-red-text)] border border-[var(--badge-red-text)]/30 rounded text-xs hover:opacity-90 transition-all btn-press focus-visible:outline-none focus-visible:border-[var(--accent-signal)]"
+          class="flex-1 sm:flex-none inline-flex items-center justify-center min-h-11 sm:min-h-10 px-3.5 py-2 rounded-md border border-[var(--badge-red-text)]/40 bg-[var(--badge-red-bg)] text-sm font-sans font-medium text-[var(--badge-red-text)] hover:opacity-90 transition-colors btn-press focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)]"
         >
           Clear History
         </button>
@@ -67,25 +72,32 @@
 
   <!-- Seen Repositories Grid -->
   {#if seenList.length === 0}
-    <div class="flex-1 flex flex-col items-center justify-center py-16 text-center space-y-3 border border-[var(--border-subtle)] rounded-lg bg-[var(--bg-surface)] p-8 w-full min-h-[300px] shadow-[var(--card-shadow)]">
+    <div class="flex-1 flex flex-col items-center justify-center text-center gap-4 border border-[var(--border-subtle)] rounded-lg bg-[var(--bg-surface)] px-6 py-12 sm:p-8 w-full min-h-[240px] sm:min-h-[300px] shadow-[var(--card-shadow)]">
       <div class="w-12 h-12 rounded-full bg-[var(--accent-signal-soft-bg)] border border-[var(--accent-signal)]/30 text-[var(--accent-signal-soft-text)] flex items-center justify-center mx-auto">
-        <ClockIcon size={22} aria-hidden="true" />
+        <Icon name="clock" size={22} aria-hidden="true" />
       </div>
-      <div class="space-y-1">
-        <h3 class="font-bold text-base text-[var(--text-main)] tracking-tight font-display">
+      <div class="space-y-2 max-w-sm">
+        <h2
+          bind:this={emptyHeadingRef}
+          tabindex="-1"
+          class="font-display text-lg font-semibold text-[var(--text-main)] tracking-tight"
+        >
           No History
-        </h3>
-        <p class="text-xs text-[var(--text-muted)] leading-relaxed">
+        </h2>
+        <p class="text-sm font-sans text-[var(--text-muted)] leading-relaxed">
           Viewed or dismissed repositories are tracked here to prevent duplicates.
         </p>
       </div>
     </div>
   {:else if filteredSeenList.length === 0}
-    <div class="py-12 text-center space-y-2 text-[var(--text-muted)] font-mono text-xs border border-[var(--border-subtle)] rounded-lg bg-[var(--bg-surface)] p-6 w-full">
-      <p>No seen repositories match "{searchQuery}".</p>
+    <div class="py-12 px-6 text-center space-y-3 border border-[var(--border-subtle)] rounded-lg bg-[var(--bg-surface)] w-full min-w-0">
+      <p class="text-sm font-sans text-[var(--text-muted)] break-words">
+        No seen repositories match "{searchQuery}".
+      </p>
       <button
+        type="button"
         onclick={() => (searchQuery = '')}
-        class="text-[var(--text-main)] underline hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)] rounded px-1"
+        class="inline-flex items-center justify-center min-h-11 sm:min-h-10 px-3.5 py-2 rounded-md border border-[var(--control-border)] bg-[var(--bg-surface)] text-sm font-sans font-medium text-[var(--text-main)] hover:bg-[var(--bg-surface-hover)] transition-colors btn-press focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)]"
       >
         Clear Search
       </button>
@@ -94,12 +106,13 @@
     <VirtualRepoGrid items={filteredSeenList}>
       {#snippet itemActions(repo: TrendshiftRepo)}
         <button
+          type="button"
           onclick={() => void seenStore.unsee(repo.full_name)}
           title="Restore to active feed"
           aria-label="Restore {repo.full_name} to active feed"
-          class="p-1.5 rounded text-[var(--text-muted)] hover:text-[var(--accent-signal)] transition-colors btn-press shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)] min-w-[32px] min-h-[32px] sm:min-w-0 sm:min-h-0 flex items-center justify-center"
+          class="inline-flex items-center justify-center shrink-0 min-h-11 min-w-11 sm:min-h-10 sm:min-w-10 rounded-md text-[var(--text-muted)] hover:text-[var(--accent-signal)] hover:bg-[var(--accent-signal-soft-bg)] transition-colors btn-press focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)]"
         >
-          <UndoIcon size={14} aria-hidden="true" />
+          <Icon name="undo" size={16} aria-hidden="true" />
         </button>
       {/snippet}
     </VirtualRepoGrid>
@@ -109,10 +122,9 @@
 <!-- Clear History Confirmation Modal -->
 <ConfirmModal
   isOpen={isConfirmOpen}
-  title="Clear Seen History"
-  message="Reset your seen history? RepoRadar will clear all {seenList.length} tracked repository keys, allowing them to appear in your feed stream again."
-  confirmText="Clear History"
-  confirmVariant="danger"
+  title="Clear seen history"
+  message="Clear your seen history? RepoRadar will show these {seenList.length} repositories again."
+  confirmText="Clear history"
   onConfirm={handleClearAllConfirmed}
   onClose={() => (isConfirmOpen = false)}
 />

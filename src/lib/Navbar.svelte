@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { BookmarkIcon, ClockIcon, SettingsIcon } from './icons'
+  import Icon from './Icon.svelte'
   import type { ViewMode } from './types'
 
   let {
@@ -9,76 +9,80 @@
     activeView?: ViewMode
     onSelectView: (view: ViewMode) => void
   }>()
+
+  // Hotkeys 1-4 open these views (see hotkeys.ts).
+  const NAV_ITEMS: { view: ViewMode; label: string; hotkey: string }[] = [
+    { view: 'feed', label: 'Feed', hotkey: '1' },
+    { view: 'saved', label: 'Saved', hotkey: '2' },
+    { view: 'history', label: 'History', hotkey: '3' },
+    { view: 'settings', label: 'Settings', hotkey: '4' },
+  ]
+
+  // Navigation, not a toggle: selecting the active view does nothing.
+  function selectNavItem(view: ViewMode) {
+    if (view !== activeView) onSelectView(view)
+  }
 </script>
 
-<header class="sticky top-0 z-30 w-full bg-[var(--bg-canvas)]/90 backdrop-blur-md border-b border-[var(--border-subtle)] transition-colors">
-  <div class="max-w-4xl mx-auto px-2.5 sm:px-4 h-14 flex items-center justify-between gap-2 sm:gap-3">
-    <!-- Left: Branding Logo -->
-    <div class="flex items-center gap-2 sm:gap-3 shrink-0">
-      <button
-        onclick={() => onSelectView('feed')}
-        class="flex items-center gap-2 font-display font-bold text-base tracking-tight text-[var(--text-main)] hover:opacity-90 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)] rounded-md px-1 -mx-1"
-        aria-label="RepoRadar Feed Home"
-      >
-        <!-- Radar Mark Icon -->
-        <svg class="w-6 h-6 shrink-0" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-          <circle cx="16" cy="16" r="14" class="stroke-[var(--text-main)]" stroke-width="2" fill="var(--bg-canvas)"/>
-          <circle cx="16" cy="16" r="9" class="stroke-[var(--accent-signal)]" stroke-width="1.5" opacity="0.5" fill="none"/>
-          <path d="M16 16 L16 4" class="stroke-[var(--accent-signal)]" stroke-width="2" stroke-linecap="round"/>
-          <path d="M16 16 L24 8" class="stroke-[var(--accent-signal)]" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
-          <circle cx="22" cy="8" r="2" class="fill-[var(--accent-signal)]"/>
-          <circle cx="16" cy="16" r="2" class="fill-[var(--accent-signal)]"/>
-        </svg>
-        <span>RepoRadar</span>
-      </button>
-    </div>
+{#snippet navIcon(view: ViewMode, active: boolean)}
+  <span aria-hidden="true" class="flex shrink-0 items-center justify-center">
+    {#if view === 'feed'}
+      <!-- Radar sweep: matches the wordmark mark -->
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="9" />
+        <circle cx="12" cy="12" r="4.5" />
+        <path d="M12 12 17 7" />
+      </svg>
+    {:else if view === 'saved'}
+      <Icon name="bookmark" size={16} filled={active} />
+    {:else if view === 'history'}
+      <Icon name="clock" size={16} />
+    {:else}
+      <Icon name="settings" size={16} />
+    {/if}
+  </span>
+{/snippet}
 
-    <!-- Right: Semantic Primary Navigation landmark -->
-    <nav aria-label="Primary" class="flex items-center gap-1.5 sm:gap-2">
-      <!-- 1. Saved Bookmarks Icon Button -->
-      <button
-        onclick={() => onSelectView(activeView === 'saved' ? 'feed' : 'saved')}
-        aria-label="Saved Bookmarks View"
-        aria-current={activeView === 'saved' ? 'page' : undefined}
-        title="Saved Bookmarks (Key 2)"
-        class="w-9 h-9 sm:w-8 sm:h-8 flex items-center justify-center bg-[var(--bg-surface)] border rounded-md transition-all btn-press active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)] {
-          activeView === 'saved'
-            ? 'border-[var(--accent-signal)] text-[var(--accent-signal)] bg-[var(--accent-signal-soft-bg)]'
-            : 'border-[var(--border-subtle)] hover:border-[var(--border-strong)] text-[var(--text-muted)] hover:text-[var(--text-main)]'
-        }"
-      >
-        <BookmarkIcon size={15} filled={activeView === 'saved'} aria-hidden="true" />
-      </button>
+<header data-site-header class="sticky top-0 z-30 w-full border-b border-[var(--border-subtle)] bg-[var(--bg-canvas)]/90 backdrop-blur-md transition-colors">
+  <div class="mx-auto flex max-w-3xl flex-col px-4 sm:h-14 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-6">
+    <!-- Wordmark -->
+    <button
+      type="button"
+      onclick={() => onSelectView('feed')}
+      aria-label="RepoRadar Feed Home"
+      class="-mx-1 flex h-12 items-center gap-2 self-start rounded-md px-1 font-display text-lg font-semibold tracking-tight text-[var(--text-main)] transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)] sm:h-auto sm:self-auto sm:py-1"
+    >
+      <!-- Radar Mark Icon -->
+      <svg class="w-6 h-6 shrink-0" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+        <circle cx="16" cy="16" r="14" class="stroke-[var(--text-main)]" stroke-width="2" fill="var(--bg-canvas)"/>
+        <circle cx="16" cy="16" r="9" class="stroke-[var(--accent-signal)]" stroke-width="1.5" opacity="0.5" fill="none"/>
+        <path d="M16 16 L16 4" class="stroke-[var(--accent-signal)]" stroke-width="2" stroke-linecap="round"/>
+        <path d="M16 16 L24 8" class="stroke-[var(--accent-signal)]" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
+        <circle cx="22" cy="8" r="2" class="fill-[var(--accent-signal)]"/>
+        <circle cx="16" cy="16" r="2" class="fill-[var(--accent-signal)]"/>
+      </svg>
+      <span>RepoRadar</span>
+    </button>
 
-      <!-- 2. Seen History Inspector Icon Button -->
-      <button
-        onclick={() => onSelectView(activeView === 'history' ? 'feed' : 'history')}
-        aria-label="Seen History View"
-        aria-current={activeView === 'history' ? 'page' : undefined}
-        title="Seen History (Key 3)"
-        class="w-9 h-9 sm:w-8 sm:h-8 flex items-center justify-center bg-[var(--bg-surface)] border rounded-md transition-all btn-press active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)] {
-          activeView === 'history'
-            ? 'border-[var(--accent-signal)] text-[var(--accent-signal)] bg-[var(--accent-signal-soft-bg)]'
-            : 'border-[var(--border-subtle)] hover:border-[var(--border-strong)] text-[var(--text-muted)] hover:text-[var(--text-main)]'
-        }"
-      >
-        <ClockIcon size={15} aria-hidden="true" />
-      </button>
-
-      <!-- 3. Settings & Shortcuts Icon Button -->
-      <button
-        onclick={() => onSelectView(activeView === 'settings' ? 'feed' : 'settings')}
-        aria-label="Settings & Shortcuts View"
-        aria-current={activeView === 'settings' ? 'page' : undefined}
-        title="Settings & Shortcuts (Key 4)"
-        class="w-9 h-9 sm:w-8 sm:h-8 flex items-center justify-center bg-[var(--bg-surface)] border rounded-md transition-all btn-press active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)] {
-          activeView === 'settings'
-            ? 'border-[var(--accent-signal)] text-[var(--accent-signal)] bg-[var(--accent-signal-soft-bg)]'
-            : 'border-[var(--border-subtle)] hover:border-[var(--border-strong)] text-[var(--text-muted)] hover:text-[var(--text-main)]'
-        }"
-      >
-        <SettingsIcon size={15} aria-hidden="true" />
-      </button>
+    <!-- Primary navigation: four equal columns on phones, a compact row from sm up -->
+    <nav aria-label="Primary" class="grid w-full grid-cols-4 gap-1 pb-1.5 sm:flex sm:w-auto sm:items-center sm:gap-1 sm:pb-0">
+      {#each NAV_ITEMS as item (item.view)}
+        {@const active = activeView === item.view}
+        <button
+          type="button"
+          onclick={() => selectNavItem(item.view)}
+          aria-current={active ? 'page' : undefined}
+          title={`${item.label} (${item.hotkey})`}
+          class="btn-press relative flex min-h-11 flex-col items-center justify-center gap-1 whitespace-nowrap rounded-md px-1 py-1.5 font-sans text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)] sm:min-h-9 sm:flex-row sm:gap-2 sm:px-3 sm:text-sm {active ? 'text-[var(--text-main)]' : 'text-[var(--text-muted)] hover:text-[var(--text-main)]'}"
+        >
+          {@render navIcon(item.view, active)}
+          <span>{item.label}</span>
+          {#if active}
+            <!-- Active state is a shape as well as a color -->
+            <span aria-hidden="true" class="pointer-events-none absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-[var(--accent-signal)] sm:inset-x-3"></span>
+          {/if}
+        </button>
+      {/each}
     </nav>
   </div>
 </header>

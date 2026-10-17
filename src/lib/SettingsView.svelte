@@ -1,15 +1,23 @@
 <script lang="ts">
+  import Icon from './Icon.svelte'
+  import { tick } from 'svelte'
   import { seenStore } from './seen.svelte'
   import ToggleSwitch from './ToggleSwitch.svelte'
-  import { validateImportFile } from './history-import'
-  import { SettingsIcon, SunIcon, MoonIcon, KeyboardIcon, ClockIcon } from './icons'
-
-  let { isDark = $bindable(true) } = $props<{
+  import ConfirmModal from './ConfirmModal.svelte'
+  import { parseHistoryImport, validateImportFile } from './history-import'
+  let {
+    isDark = $bindable(true),
+    characterShortcuts = $bindable(true),
+  } = $props<{
     isDark?: boolean
+    characterShortcuts?: boolean
   }>()
 
   let importStatus = $state<{ message: string; isError: boolean } | null>(null)
   let isImporting = $state(false)
+  // A file that passed validation and parsing, waiting for the user to confirm the replacement.
+  let pendingImport = $state<{ content: string; count: number } | null>(null)
+  let importInputRef = $state<HTMLInputElement | null>(null)
 
   function handleExportHistory() {
     const jsonStr = seenStore.exportHistoryJSON()
@@ -24,6 +32,10 @@
     URL.revokeObjectURL(url)
   }
 
+  function resetImportInput() {
+    if (importInputRef) importInputRef.value = ''
+  }
+
   function handleImportHistory(e: Event) {
     const target = e.target as HTMLInputElement
     const file = target.files?.[0]
@@ -32,76 +44,106 @@
     const validation = validateImportFile(file)
     if (!validation.ok) {
       importStatus = { message: validation.error, isError: true }
-      target.value = ''
+      resetImportInput()
       return
     }
 
     isImporting = true
     const reader = new FileReader()
-    reader.onload = async (event) => {
+    reader.onload = (event) => {
       try {
         const content = event.target?.result as string
         if (!content) {
           importStatus = { message: 'File is empty.', isError: true }
+          resetImportInput()
           return
         }
-        const res = await seenStore.importHistoryJSON(content)
-        if (res.success) {
-          importStatus = {
-            message: `Successfully imported ${res.count} history records (overwritten).`,
-            isError: false,
-          }
-        } else {
-          importStatus = {
-            message: res.error || 'Failed to import history JSON.',
-            isError: true,
-          }
+        const parsed = parseHistoryImport(content)
+        if (!parsed.ok) {
+          importStatus = { message: parsed.error, isError: true }
+          resetImportInput()
+          return
         }
+        // Nothing is written yet. The user confirms the replacement first.
+        importStatus = null
+        pendingImport = { content, count: parsed.count }
       } finally {
         isImporting = false
-        target.value = ''
       }
     }
     reader.onerror = () => {
       importStatus = { message: 'Failed to read file.', isError: true }
       isImporting = false
-      target.value = ''
+      resetImportInput()
     }
     reader.readAsText(file)
   }
 
-  const shortcuts = [
-    { key: '1', action: 'Switch to Feed View (Home)' },
-    { key: '2', action: 'Switch to Bookmarks View' },
-    { key: '3', action: 'Switch to History View' },
-    { key: '4 / Shift+?', action: 'Open Shortcuts & Settings' },
-    { key: 'J', action: 'Move focus to next repository card' },
-    { key: 'K', action: 'Move focus to previous repository card' },
-    { key: 'S', action: 'Save / Bookmark active repository' },
-    { key: 'D', action: 'Mark Seen for active repository' },
-    { key: 'U', action: 'Undo last dismissed repository' },
-    { key: 'Esc', action: 'Return to Feed stream' },
+  function cancelImport() {
+    pendingImport = null
+    resetImportInput()
+  }
+
+  async function confirmImport() {
+    const pending = pendingImport
+    if (!pending) return
+    pendingImport = null
+    isImporting = true
+    try {
+      const res = await seenStore.importHistoryJSON(pending.content)
+      if (res.success) {
+        importStatus = {
+          message: `Successfully imported ${res.count} history records (overwritten).`,
+          isError: false,
+        }
+      } else {
+        importStatus = {
+          message: res.error || 'Failed to import history JSON.',
+          isError: true,
+        }
+      }
+    } finally {
+      isImporting = false
+      resetImportInput()
+      // The input was disabled during the import, so return focus to it once it is enabled again.
+      await tick()
+      importInputRef?.focus()
+    }
+  }
+
+  const shortcuts: { keys: string[]; action: string }[] = [
+    { keys: ['1'], action: 'Go to the Feed' },
+    { keys: ['2'], action: 'Go to Saved' },
+    { keys: ['3'], action: 'Go to History' },
+    { keys: ['4', 'Shift+?'], action: 'Open Settings' },
+    { keys: ['J'], action: 'Move focus to the next card' },
+    { keys: ['K'], action: 'Move focus to the previous card' },
+    { keys: ['S'], action: 'Bookmark the focused card' },
+    { keys: ['D'], action: 'Mark the focused card as seen' },
+    { keys: ['U'], action: 'Undo the last seen mark while the "Marked as seen" notice is showing (about 4 seconds)' },
+    { keys: ['Esc'], action: 'Close a dialog, or return to the Feed' },
   ]
 </script>
 
 {#snippet sunIconSnippet()}
-  <SunIcon size={13} aria-hidden="true" />
+  <Icon name="sun" size={13} aria-hidden="true" />
 {/snippet}
 
 {#snippet moonIconSnippet()}
-  <MoonIcon size={13} aria-hidden="true" />
+  <Icon name="moon" size={13} aria-hidden="true" />
 {/snippet}
 
 <div class="space-y-6 w-full">
   {#if seenStore.persistenceError}
     <div
       role="alert"
-      class="p-3 bg-[var(--badge-red-bg)] text-[var(--badge-red-text)] border border-[var(--badge-red-text)]/30 rounded-lg text-xs font-mono flex items-center justify-between gap-2"
+      class="flex items-start justify-between gap-3 px-3.5 py-2.5 rounded-md border border-[var(--badge-red-text)]/40 bg-[var(--badge-red-bg)] text-[var(--badge-red-text)] text-sm font-sans"
     >
-      <span>Storage Warning: {seenStore.persistenceError}</span>
+      <span class="min-w-0 break-words">Storage Warning: {seenStore.persistenceError}</span>
       <button
+        type="button"
         onclick={() => (seenStore.persistenceError = null)}
-        class="underline font-semibold hover:opacity-80"
+        class="shrink-0 min-h-11 sm:min-h-10 px-2 rounded font-medium underline underline-offset-2 hover:opacity-80 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)]"
       >
         Dismiss
       </button>
@@ -111,8 +153,8 @@
   <!-- Preferences Card -->
   <div class="bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-lg shadow-[var(--card-shadow)] p-5 sm:p-6 space-y-5">
     <div class="flex items-center gap-2 border-b border-[var(--border-subtle)] pb-3">
-      <SettingsIcon size={18} class="text-[var(--accent-signal)]" aria-hidden="true" />
-      <h2 class="font-bold text-base text-[var(--text-main)] font-display tracking-tight">
+      <Icon name="settings" size={18} class="text-[var(--accent-signal)]" aria-hidden="true" />
+      <h2 class="font-display text-lg font-semibold text-[var(--text-main)] tracking-tight">
         Application Preferences
       </h2>
     </div>
@@ -126,28 +168,35 @@
         description="Select your preferred color theme (Dark / Light)"
         iconInactive={sunIconSnippet}
         iconActive={moonIconSnippet}
-        ariaLabel="Dark mode appearance theme"
       />
 
-      <div class="border-t border-[var(--border-subtle)] pt-2">
-        <!-- 2. Scroll-Past Auto-Seen -->
+      <div class="border-t border-[var(--border-subtle)] pt-4">
+        <!-- 2. Single-key Shortcuts -->
+        <ToggleSwitch
+          checked={characterShortcuts}
+          onChange={(val) => (characterShortcuts = val)}
+          label="Single-key shortcuts"
+          description="J, K, S, D, U and 1–4 act on the feed. Turn them off if they clash with a screen reader or your keyboard layout. Escape always works."
+        />
+      </div>
+
+      <div class="border-t border-[var(--border-subtle)] pt-4">
+        <!-- 3. Scroll-Past Auto-Seen -->
         <ToggleSwitch
           checked={seenStore.autoSeenOnScroll}
           onChange={(val) => (seenStore.autoSeenOnScroll = val)}
           label="Scroll-Past Auto-Seen"
           description="Automatically mark repositories as seen when scrolled past"
-          ariaLabel="Toggle Scroll-Past Auto-Seen"
         />
       </div>
 
-      <div class="border-t border-[var(--border-subtle)] pt-2">
-        <!-- 3. Mobile Touch Swipe Gestures -->
+      <div class="border-t border-[var(--border-subtle)] pt-4">
+        <!-- 4. Mobile Touch Swipe Gestures -->
         <ToggleSwitch
           checked={seenStore.swipeGesturesEnabled}
           onChange={(val) => (seenStore.swipeGesturesEnabled = val)}
           label="Mobile Touch Swipe Gestures"
           description="Enable swipe right (bookmark) & swipe left (seen) on mobile devices"
-          ariaLabel="Toggle Mobile Touch Swipe Gestures"
         />
       </div>
     </div>
@@ -156,27 +205,31 @@
   <!-- History Data Management Card -->
   <div class="bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-lg shadow-[var(--card-shadow)] p-5 sm:p-6 space-y-4">
     <div class="flex items-center gap-2 border-b border-[var(--border-subtle)] pb-3">
-      <ClockIcon size={18} class="text-[var(--accent-signal)]" aria-hidden="true" />
-      <h2 class="font-bold text-base text-[var(--text-main)] font-display tracking-tight">
+      <Icon name="clock" size={18} class="text-[var(--accent-signal)]" aria-hidden="true" />
+      <h2 class="font-display text-lg font-semibold text-[var(--text-main)] tracking-tight">
         History Data Management
       </h2>
     </div>
 
-    <p class="text-xs text-[var(--text-muted)] leading-relaxed">
-      Export your seen repository history as a JSON file or import history from a file. <strong class="text-[var(--text-main)]">Note: Importing will always overwrite current history.</strong>
+    <p class="text-sm font-sans text-[var(--text-muted)] leading-relaxed">
+      Export your seen repository history as a JSON file, or import one. Importing replaces your current history after you confirm. Files up to 2 MiB are accepted.
     </p>
 
-    <div class="flex flex-wrap items-center gap-3 pt-1 font-mono text-xs">
+    <div class="flex flex-col sm:flex-row sm:flex-wrap gap-2.5 sm:gap-3">
       <button
+        type="button"
         onclick={handleExportHistory}
-        class="px-3 py-1.5 bg-[var(--bg-canvas)] text-[var(--text-main)] border border-[var(--border-subtle)] rounded text-xs font-mono font-medium hover:border-[var(--border-strong)] transition-all btn-press focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)]"
+        class="inline-flex items-center justify-center w-full sm:w-auto min-h-11 sm:min-h-10 px-4 py-2 rounded-md border border-[var(--control-border)] bg-[var(--bg-surface)] text-sm font-sans font-medium text-[var(--text-main)] hover:bg-[var(--bg-surface-hover)] transition-colors btn-press focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)]"
       >
         Export History ({seenStore.seenSize})
       </button>
 
-      <label class="px-3 py-1.5 bg-[var(--accent-signal-soft-bg)] text-[var(--accent-signal-soft-text)] border border-[var(--accent-signal)]/30 rounded text-xs font-mono font-medium hover:opacity-90 transition-all cursor-pointer btn-press focus-within:ring-2 focus-within:ring-[var(--accent-signal)] {isImporting ? 'opacity-50 pointer-events-none' : ''}">
+      <label
+        class="inline-flex items-center justify-center w-full sm:w-auto min-h-11 sm:min-h-10 px-4 py-2 rounded-md border border-[var(--accent-signal)]/40 bg-[var(--accent-signal-soft-bg)] text-sm font-sans font-medium text-[var(--accent-signal-soft-text)] hover:opacity-90 transition-opacity cursor-pointer btn-press has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--accent-signal)] {isImporting ? 'opacity-50 pointer-events-none' : ''}"
+      >
         <span>{isImporting ? 'Importing...' : 'Import History (.json)'}</span>
         <input
+          bind:this={importInputRef}
           type="file"
           accept=".json,application/json"
           disabled={isImporting}
@@ -189,7 +242,7 @@
     {#if importStatus}
       <div
         role={importStatus.isError ? 'alert' : 'status'}
-        class="p-2.5 rounded text-xs font-mono border {importStatus.isError ? 'bg-[var(--badge-red-bg)] text-[var(--badge-red-text)] border-[var(--badge-red-text)]/30' : 'bg-[var(--accent-signal-soft-bg)] text-[var(--accent-signal-soft-text)] border-[var(--accent-signal)]/30'}"
+        class="px-3.5 py-2.5 rounded-md border text-sm font-sans {importStatus.isError ? 'bg-[var(--badge-red-bg)] text-[var(--badge-red-text)] border-[var(--badge-red-text)]/40' : 'bg-[var(--accent-signal-soft-bg)] text-[var(--accent-signal-soft-text)] border-[var(--accent-signal)]/40'}"
       >
         {importStatus.message}
       </div>
@@ -199,19 +252,40 @@
   <!-- Keyboard Shortcuts Cheat-sheet Card -->
   <div class="bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-lg shadow-[var(--card-shadow)] p-5 sm:p-6 space-y-4">
     <div class="flex items-center gap-2 border-b border-[var(--border-subtle)] pb-3">
-      <KeyboardIcon size={18} class="text-[var(--accent-signal)]" aria-hidden="true" />
-      <h2 class="font-bold text-base text-[var(--text-main)] font-display tracking-tight">
+      <Icon name="keyboard" size={18} class="text-[var(--accent-signal)]" aria-hidden="true" />
+      <h2 class="font-display text-lg font-semibold text-[var(--text-main)] tracking-tight">
         Keyboard Shortcuts Reference
       </h2>
     </div>
 
-    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+    <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6">
       {#each shortcuts as item}
-        <div class="flex items-center justify-between text-xs p-2.5 rounded bg-[var(--bg-canvas)] border border-[var(--border-subtle)]">
-          <span class="text-[var(--text-muted)] font-mono">{item.action}</span>
-          <kbd class="ml-2 font-mono font-bold shrink-0 px-2 py-0.5 bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded text-[var(--text-main)] shadow-xs">{item.key}</kbd>
+        <div class="flex items-center gap-3 py-2.5 border-b border-[var(--border-subtle)]">
+          <dt class="shrink-0 min-w-[6.5rem] flex items-center gap-1.5">
+            {#each item.keys as key, i}
+              {#if i > 0}
+                <span class="text-xs font-sans text-[var(--text-muted)]">or</span>
+              {/if}
+              <kbd>{key}</kbd>
+            {/each}
+          </dt>
+          <dd class="text-sm font-sans text-[var(--text-main)] leading-snug">{item.action}</dd>
         </div>
       {/each}
-    </div>
+    </dl>
+
+    <p class="text-sm font-sans text-[var(--text-muted)] leading-relaxed">
+      Single-key shortcuts can be turned off in Application Preferences. Escape always works.
+    </p>
   </div>
 </div>
+
+<!-- Replace History Confirmation Modal -->
+<ConfirmModal
+  isOpen={pendingImport !== null}
+  title="Replace seen history?"
+  message="This replaces your current seen history with {pendingImport?.count ?? 0} repositories from the file. Your current history will be lost."
+  confirmText="Replace history"
+  onConfirm={confirmImport}
+  onClose={cancelImport}
+/>

@@ -59,11 +59,6 @@ class FakePersistence implements RepoPersistence {
     if (this.shouldFail) throw new Error('Persistence error')
     this.saved.delete(key)
   }
-  async replaceSaved(entries: SavedEntry[]): Promise<void> {
-    if (this.shouldFail) throw new Error('Persistence error')
-    this.saved.clear()
-    for (const e of entries) this.saved.set(e.key, e)
-  }
   async clearSaved(): Promise<void> {
     if (this.shouldFail) throw new Error('Persistence error')
     this.saved.clear()

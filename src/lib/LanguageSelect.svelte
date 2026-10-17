@@ -1,7 +1,6 @@
 <script lang="ts">
+  import Icon from './Icon.svelte'
   import { LANGUAGE_OPTIONS, type LanguageOption } from './types'
-  import { ChevronDownIcon, CheckIcon } from './icons'
-
   let {
     value = 'all',
     onChange,
@@ -45,11 +44,26 @@
     triggerRef?.focus()
   }
 
+  // Space would otherwise fire a native button click on keyup and reopen the list.
+  function preventSpaceKeyup(e: KeyboardEvent) {
+    if (e.key === ' ') e.preventDefault()
+  }
+
   function handleKeydown(e: KeyboardEvent) {
     if (!isOpen) {
       if (['ArrowDown', 'ArrowUp', 'Enter', ' ', 'Home', 'End'].includes(e.key)) {
         e.preventDefault()
         toggleOpen()
+      }
+      return
+    }
+
+    // Enter and Space select the active option. This runs before the printable
+    // character branch below, which would otherwise take Space as typeahead.
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      if (LANGUAGE_OPTIONS[highlightedIndex]) {
+        selectOption(LANGUAGE_OPTIONS[highlightedIndex].id)
       }
       return
     }
@@ -95,13 +109,6 @@
           LANGUAGE_OPTIONS.length
         scrollToHighlighted()
         break
-      case 'Enter':
-      case ' ':
-        e.preventDefault()
-        if (LANGUAGE_OPTIONS[highlightedIndex]) {
-          selectOption(LANGUAGE_OPTIONS[highlightedIndex].id)
-        }
-        break
       case 'Escape':
         e.preventDefault()
         close()
@@ -143,6 +150,7 @@
     role="combobox"
     onclick={toggleOpen}
     onkeydown={handleKeydown}
+    onkeyup={preventSpaceKeyup}
     aria-haspopup="listbox"
     aria-expanded={isOpen}
     aria-controls="lang-listbox"
@@ -150,14 +158,14 @@
       ? `lang-opt-${LANGUAGE_OPTIONS[highlightedIndex].id}`
       : undefined}
     aria-label="Filter repositories by language: {selectedOption.label}"
-    class="inline-flex items-center gap-1 font-mono text-[11px] sm:text-xs font-bold text-[var(--text-main)] uppercase cursor-pointer hover:opacity-80 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)] rounded px-1 -mx-1"
+    class="inline-flex min-h-11 items-center gap-2 rounded-md border border-[var(--control-border)] bg-[var(--bg-surface)] px-3 font-mono text-sm font-semibold uppercase text-[var(--text-main)] cursor-pointer transition-colors hover:bg-[var(--bg-surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)] sm:min-h-9"
   >
     <span>{selectedOption.label}</span>
     <span
-      class="text-[var(--text-muted)] flex items-center justify-center shrink-0 transition-transform duration-150 {isOpen ? 'rotate-180' : ''}"
+      class="flex items-center justify-center shrink-0 text-[var(--text-muted)] transition-transform duration-150 {isOpen ? 'rotate-180' : ''}"
       aria-hidden="true"
     >
-      <ChevronDownIcon size={12} />
+      <Icon name="chevron-down" size={12} />
     </span>
   </button>
 
@@ -169,7 +177,7 @@
       tabindex="-1"
       onkeydown={handleKeydown}
       aria-label="Language options"
-      class="popover-animate absolute left-0 mt-2 z-50 min-w-[170px] max-h-64 overflow-y-auto p-1.5 bg-[var(--bg-surface)]/90 backdrop-blur-xl border border-black/10 dark:border-white/15 rounded-xl shadow-2xl focus:outline-none"
+      class="popover-animate absolute left-0 mt-1.5 z-50 min-w-[11rem] max-h-64 overflow-y-auto p-1 bg-[var(--bg-surface)] border border-[var(--control-border)] rounded-lg shadow-[var(--card-shadow-lift)]"
     >
       {#each LANGUAGE_OPTIONS as opt, idx (opt.id)}
         {@const isSelected = opt.id === value}
@@ -183,12 +191,18 @@
           onkeydown={(e) =>
             (e.key === 'Enter' || e.key === ' ') && selectOption(opt.id)}
           onmouseenter={() => (highlightedIndex = idx)}
-          class="flex items-center justify-between px-3 py-1.5 rounded-lg text-xs cursor-pointer select-none transition-colors font-mono {isHighlighted ? 'bg-[var(--bg-surface-hover)] text-[var(--text-main)]' : 'text-[var(--text-main)]'} {isSelected ? 'font-semibold bg-[var(--bg-surface-hover)]/60' : 'font-normal'}"
+          class="flex min-h-11 sm:min-h-8 items-center justify-between gap-3 px-3 rounded-md font-mono text-sm cursor-pointer select-none transition-colors {isSelected
+            ? 'bg-[var(--accent-signal-soft-bg)] font-semibold text-[var(--accent-signal-soft-text)]'
+            : isHighlighted
+              ? 'bg-[var(--bg-surface-hover)] font-normal text-[var(--text-main)]'
+              : 'font-normal text-[var(--text-main)]'} {isHighlighted
+            ? 'ring-2 ring-inset ring-[var(--accent-signal)]'
+            : ''}"
         >
           <span>{opt.label}</span>
           {#if isSelected}
-            <span class="text-[var(--text-main)] ml-2 shrink-0" aria-hidden="true">
-              <CheckIcon size={13} />
+            <span class="flex shrink-0 text-[var(--accent-signal-soft-text)]" aria-hidden="true">
+              <Icon name="check" size={13} />
             </span>
           {/if}
         </li>
