@@ -36,6 +36,8 @@ interface UndoRecord {
 
 export type ImportResult = { ok: true; saved: number; seen: number } | { ok: false; error: string }
 
+// Storage identifiers keep their original RepoRadar-era names on purpose: renaming them
+// would drop every saved and seen repo already in a browser. Only visible text says GitRadar.
 const PREFS_KEY = 'rr:prefs'
 const THEMES: readonly Theme[] = ['system', 'light', 'dark']
 const CHANNEL_NAME = 'repo-radar'
@@ -327,7 +329,7 @@ export class Triage {
         return
       }
     } catch (error) {
-      console.error('RepoRadar: could not read saved repos', error)
+      console.error('GitRadar: could not read saved repos', error)
     }
   }
 
@@ -338,7 +340,7 @@ export class Triage {
       this.#storage.set('seen', [...this.#seen.values()]),
     ]).then(
       () => this.#channel?.postMessage(CHANGED),
-      (error: unknown) => console.error('RepoRadar: could not save triage data', error),
+      (error: unknown) => console.error('GitRadar: could not save triage data', error),
     )
   }
 

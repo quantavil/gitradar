@@ -22,7 +22,7 @@
     const url = URL.createObjectURL(new Blob([triage.exportJson()], { type: 'application/json' }))
     const link = document.createElement('a')
     link.href = url
-    link.download = `repo-radar-${localDate()}.json`
+    link.download = `gitradar-${localDate()}.json`
     link.click()
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
@@ -113,10 +113,10 @@
   <section class="set" aria-labelledby="about-title">
     <div>
       <h2 id="about-title">About</h2>
-      <p>RepoRadar is open source. Trending repository data comes from <a href="https://trendshift.io" target="_blank" rel="noopener noreferrer">trendshift.io</a>.</p>
+      <p>GitRadar is open source. Trending repository data comes from <a href="https://trendshift.io" target="_blank" rel="noopener noreferrer">trendshift.io</a>.</p>
     </div>
     <ul class="links">
-      <li><a href="https://github.com/quantavil/repo-radar" target="_blank" rel="noopener noreferrer">github.com/quantavil/repo-radar</a></li>
+      <li><a href="https://github.com/quantavil/gitradar" target="_blank" rel="noopener noreferrer">github.com/quantavil/gitradar</a></li>
       <li><a href="https://github.com/quantavil/trendshift" target="_blank" rel="noopener noreferrer">github.com/quantavil/trendshift</a></li>
     </ul>
   </section>
@@ -194,30 +194,7 @@
   .set a:hover {
     text-decoration-color: var(--accent);
   }
-  .seg {
-    display: inline-flex;
-    gap: 2px;
-    padding: 2px;
-    border: 1px solid var(--hair-2);
-    border-radius: 9px;
-    background: var(--panel);
-  }
-  .seg button {
-    height: 30px;
-    padding: 0 12px;
-    border-radius: 7px;
-    color: var(--ink-3);
-    font: 500 13px/1 var(--ui);
-    white-space: nowrap;
-    cursor: pointer;
-  }
-  .seg button:hover {
-    color: var(--ink);
-  }
-  .seg button[aria-pressed="true"] {
-    background: var(--ink);
-    color: var(--bg);
-  }
+  /* The segmented control itself is shared from app.css. */
   .stack {
     display: grid;
     gap: 10px;
@@ -228,24 +205,7 @@
     flex-wrap: wrap;
     gap: 8px;
   }
-  .btn {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    height: 34px;
-    padding: 0 12px;
-    border: 1px solid var(--hair-2);
-    border-radius: 8px;
-    background: var(--panel);
-    color: var(--ink);
-    font: 500 13px/1 var(--ui);
-    white-space: nowrap;
-    cursor: pointer;
-  }
-  .btn:hover {
-    background: var(--hover);
-  }
+  /* Buttons are shared from app.css. */
   .file {
     cursor: pointer;
   }
@@ -277,7 +237,7 @@
     margin: 0;
     padding: 0;
     list-style: none;
-    font-family: var(--mono);
+    font-family: var(--font-mono);
     font-size: 12.5px;
   }
   @media (pointer: coarse) {

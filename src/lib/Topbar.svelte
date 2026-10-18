@@ -1,8 +1,9 @@
 <script lang="ts">
   import { feed } from './feed.svelte'
   import { triage } from './triage.svelte'
-  import { LANGUAGES, SORTS, TIMEFRAMES, type View } from './types'
+  import { LANGUAGES, SORTS, TIMEFRAMES, type Timeframe, type View } from './types'
   import Icon from './Icon.svelte'
+  import Select from './Select.svelte'
 
   const TABS: { id: View; label: string }[] = [
     { id: 'discover', label: 'Discover' },
@@ -58,11 +59,13 @@
   <div class="bar">
     <div class="brand">
       <Icon name="radar" size={20} />
-      <span>RepoRadar</span>
+      <span>GitRadar</span>
     </div>
 
     {#if view === 'discover'}
       <div class="filters">
+        <!-- Timeframe stays a segmented control on wide screens and becomes a dropdown
+             under 720px; CSS shows one of the two, so no media query runs in JS. -->
         <div class="seg" role="group" aria-label="Timeframe">
           {#each TIMEFRAMES as tf (tf.id)}
             <button type="button" aria-pressed={feed.timeframe === tf.id} onclick={() => feed.setTimeframe(tf.id)}>
@@ -70,19 +73,19 @@
             </button>
           {/each}
         </div>
-        <div class="sel">
-          <select aria-label="Language" value={feed.language} onchange={(e) => pickLanguage(e.currentTarget.value)}>
-            {#each LANGUAGES as lang (lang.id)}
-              <option value={lang.id}>{lang.label}</option>
-            {/each}
-          </select>
+        <div class="slot tf">
+          <Select
+            value={feed.timeframe}
+            options={TIMEFRAMES}
+            onchange={(id) => feed.setTimeframe(id as Timeframe)}
+            ariaLabel="Timeframe"
+          />
         </div>
-        <div class="sel">
-          <select aria-label="Sort" value={feed.sort} onchange={(e) => pickSort(e.currentTarget.value)}>
-            {#each SORTS as sort (sort.id)}
-              <option value={sort.id}>{sort.label}</option>
-            {/each}
-          </select>
+        <div class="slot">
+          <Select value={feed.language} options={LANGUAGES} onchange={pickLanguage} ariaLabel="Language" />
+        </div>
+        <div class="slot">
+          <Select value={feed.sort} options={SORTS} onchange={pickSort} ariaLabel="Sort" align="end" />
         </div>
       </div>
     {/if}
@@ -159,63 +162,15 @@
     min-width: 0;
   }
 
-  .seg {
-    display: inline-flex;
-    gap: 2px;
-    padding: 2px;
-    border: 1px solid var(--hair-2);
-    border-radius: 9px;
-    background: var(--panel);
+  /* One flexible slot per filter; the Select inside fills it and ellipsizes when it must. */
+  .slot {
+    display: flex;
+    flex: 0 1 auto;
+    min-width: 0;
   }
 
-  .seg button {
-    height: 28px;
-    padding: 0 11px;
-    border-radius: 7px;
-    color: var(--ink-3);
-    font-size: 13px;
-    font-weight: 500;
-    white-space: nowrap;
-  }
-
-  .seg button:hover {
-    color: var(--ink);
-  }
-
-  .seg button[aria-pressed="true"] {
-    background: var(--ink);
-    color: var(--bg);
-  }
-
-  .sel {
-    position: relative;
-    display: inline-flex;
-  }
-
-  .sel select {
-    appearance: none;
-    height: 30px;
-    max-width: 100%;
-    padding: 0 28px 0 10px;
-    border: 1px solid var(--hair-2);
-    border-radius: 8px;
-    background: var(--panel);
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-  }
-
-  .sel::after {
-    content: "";
-    position: absolute;
-    right: 12px;
-    top: 50%;
-    width: 5px;
-    height: 5px;
-    border: solid var(--ink-3);
-    border-width: 0 1.5px 1.5px 0;
-    transform: translateY(-70%) rotate(45deg);
-    pointer-events: none;
+  .slot.tf {
+    display: none;
   }
 
   .views {
@@ -315,31 +270,26 @@
       display: none;
     }
 
+    /* No horizontal sliding: the three filters share one row, shrink with ellipsis and
+       wrap only when the screen is narrower than the labels can fit. */
     .filters {
       order: 3;
-      width: calc(100% + 32px);
-      margin: 0 -16px;
-      padding: 0 16px 10px;
-      overflow-x: auto;
-      flex-wrap: nowrap;
-      scrollbar-width: none;
+      width: 100%;
+      flex-wrap: wrap;
+      gap: 6px;
+      padding-bottom: 10px;
     }
 
-    .filters::-webkit-scrollbar {
+    .filters .seg {
       display: none;
     }
 
-    .filters > * {
-      flex: none;
+    .slot.tf {
+      display: flex;
     }
 
-    .seg button {
-      height: 44px;
-      padding: 0 14px;
-    }
-
-    .sel select {
-      height: 44px;
+    .filters > .slot {
+      flex: 1 1 auto;
     }
 
     .icon-btn {

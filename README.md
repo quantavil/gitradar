@@ -1,6 +1,6 @@
-# RepoRadar
+# GitRadar
 
-**RepoRadar** is an ultra-fast, zero-duplicate GitHub trending repository discovery web app. Built with an editorial utilitarian aesthetic, it streams trending repositories concurrently from the static CDN while ensuring you never see the same repository twice.
+**GitRadar** is an ultra-fast, zero-duplicate GitHub trending repository discovery web app. Built with an editorial utilitarian aesthetic, it streams trending repositories concurrently from the static CDN while ensuring you never see the same repository twice.
 
 ---
 

@@ -65,9 +65,10 @@
 
   function onkeydown(e: KeyboardEvent) {
     if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return
-    if (document.querySelector('dialog[open]')) return
+    // A dialog or an open dropdown owns the keyboard, including Escape and S, D, O.
+    if (document.querySelector('dialog[open], [role="listbox"]')) return
     const target = e.target
-    if (target instanceof HTMLElement && (target.isContentEditable || target.closest('input, select, textarea'))) return
+    if (target instanceof HTMLElement && (target.isContentEditable || target.closest('input, textarea'))) return
 
     if (e.key === 'Escape') {
       expanded = false

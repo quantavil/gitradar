@@ -112,7 +112,7 @@
     border-radius: 8px;
     background: var(--panel);
     color: var(--ink);
-    font: 500 14px/1 var(--ui);
+    font: 500 14px/1 var(--font-ui);
     white-space: nowrap;
     cursor: pointer;
   }

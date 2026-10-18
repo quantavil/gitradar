@@ -10,10 +10,12 @@ export const TIMEFRAMES: { id: Timeframe; label: string }[] = [
 export interface LanguageMeta {
   id: string
   label: string
+  /** Trigger text under 720px; the popup keeps the full label. */
+  short?: string
 }
 
 export const LANGUAGES: LanguageMeta[] = [
-  { id: 'all', label: 'All languages' },
+  { id: 'all', label: 'All languages', short: 'All' },
   { id: 'python', label: 'Python' },
   { id: 'rust', label: 'Rust' },
   { id: 'typescript', label: 'TypeScript' },
@@ -33,10 +35,10 @@ export const LANGUAGES: LanguageMeta[] = [
 
 export type SortKey = 'trending' | 'gained' | 'newest'
 
-export const SORTS: { id: SortKey; label: string }[] = [
+export const SORTS: { id: SortKey; label: string; short?: string }[] = [
   { id: 'trending', label: 'Trending' },
-  { id: 'gained', label: 'Most stars gained' },
-  { id: 'newest', label: 'Newest repos' },
+  { id: 'gained', label: 'Most stars gained', short: 'Stars gained' },
+  { id: 'newest', label: 'Newest repos', short: 'Newest' },
 ]
 
 export type View = 'discover' | 'saved' | 'seen' | 'settings'

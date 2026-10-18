@@ -2,6 +2,7 @@
   import { tick } from 'svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import RepoRow from './RepoRow.svelte'
+  import Select from './Select.svelte'
   import {
     COLLECTION_SORTS,
     ROWS_PER_PAGE,
@@ -121,7 +122,8 @@
 
   function onkeydown(event: KeyboardEvent) {
     if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return
-    if (isTyping(event.target) || document.querySelector('dialog[open]')) return
+    // A dialog or an open dropdown owns the keyboard; the search box owns the letters it types.
+    if (isTyping(event.target) || document.querySelector('dialog[open], [role="listbox"]')) return
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault()
       void move(event.key === 'ArrowDown' ? 1 : -1)
@@ -170,13 +172,15 @@
             </button>
           {/if}
         </div>
-        <label class="sel">
-          <select bind:value={sort} aria-label="Sort {copy.noun} repos">
-            {#each COLLECTION_SORTS as option (option.id)}
-              <option value={option.id}>{option.label}</option>
-            {/each}
-          </select>
-        </label>
+        <div class="slot">
+          <Select
+            value={sort}
+            options={COLLECTION_SORTS}
+            onchange={(id) => (sort = id as CollectionSort)}
+            ariaLabel="Sort {copy.noun} repos"
+            align="end"
+          />
+        </div>
       </div>
     {/if}
   </header>
@@ -258,7 +262,7 @@
     letter-spacing: -0.02em;
   }
   .count {
-    font: 500 12px/1 var(--mono);
+    font: 500 12px/1 var(--font-mono);
     color: var(--ink-3);
   }
   .clear-all {
@@ -283,7 +287,7 @@
     border-radius: 8px;
     background: var(--panel);
     color: var(--ink);
-    font: 400 13.5px/1 var(--ui);
+    font: 400 13.5px/1 var(--font-ui);
   }
   .search input::placeholder {
     color: var(--ink-3);
@@ -315,36 +319,14 @@
     stroke-width: 2;
     stroke-linecap: round;
   }
-  .sel {
-    position: relative;
-    display: inline-flex;
-  }
-  .sel select {
-    appearance: none;
-    height: 34px;
-    padding: 0 28px 0 10px;
-    border: 1px solid var(--hair-2);
-    border-radius: 8px;
-    background: var(--panel);
-    color: var(--ink);
-    font: 500 13px/1 var(--ui);
-    cursor: pointer;
-  }
-  .sel::after {
-    content: "";
-    position: absolute;
-    right: 12px;
-    top: 50%;
-    width: 5px;
-    height: 5px;
-    border: solid var(--ink-3);
-    border-width: 0 1.5px 1.5px 0;
-    transform: translateY(-70%) rotate(45deg);
-    pointer-events: none;
+  /* One flexible slot for the sort Select, which owns the trigger styles. */
+  .slot {
+    display: flex;
+    flex: 0 1 auto;
+    min-width: 0;
   }
   button:focus-visible,
-  input:focus-visible,
-  select:focus-visible {
+  input:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
   }
@@ -365,8 +347,7 @@
     color: var(--ink-2);
   }
   @media (pointer: coarse) {
-    .search input,
-    .sel select {
+    .search input {
       height: 44px;
     }
     .clear {
@@ -384,6 +365,9 @@
     .search {
       flex-basis: 100%;
       max-width: none;
+    }
+    .slot {
+      flex: 1 1 auto;
     }
     .empty {
       padding: 44px 16px;

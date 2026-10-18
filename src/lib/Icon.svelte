@@ -20,6 +20,8 @@
     undo: [{ d: 'M9 14L4 9l5-5' }, { d: 'M4 9h10.5a5.5 5.5 0 0 1 0 11H11' }],
     settings: [{ d: 'M4 7h9M17 7h3M4 17h3M11 17h9' }, { d: circle(15, 7, 2) }, { d: circle(9, 17, 2) }],
     seen: [{ d: circle(12, 12, 8.5) }, { d: 'M12 7.5V12l3 2' }],
+    chevron: [{ d: 'M6 9l6 6 6-6' }],
+    check: [{ d: 'M5 12.5l4.5 4.5L19 7' }],
   }
 </script>
 

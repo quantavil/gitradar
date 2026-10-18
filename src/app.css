@@ -232,3 +232,33 @@
 .btn.pri:hover {
   filter: brightness(1.06);
 }
+
+/* Segmented control, shared by the timeframe switch and the Settings theme picker.
+   Phone layouts widen it separately where it replaces a full-width row. */
+.seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--hair-2);
+  border-radius: 9px;
+  background: var(--panel);
+}
+
+.seg button {
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 7px;
+  color: var(--ink-3);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.seg button:hover {
+  color: var(--ink);
+}
+
+.seg button[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--bg);
+}
