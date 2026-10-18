@@ -1,291 +1,311 @@
 <script lang="ts">
-  import Icon from './Icon.svelte'
-  import { tick } from 'svelte'
-  import { seenStore } from './seen.svelte'
-  import ToggleSwitch from './ToggleSwitch.svelte'
-  import ConfirmModal from './ConfirmModal.svelte'
-  import { parseHistoryImport, validateImportFile } from './history-import'
-  let {
-    isDark = $bindable(true),
-    characterShortcuts = $bindable(true),
-  } = $props<{
-    isDark?: boolean
-    characterShortcuts?: boolean
-  }>()
+  import ConfirmDialog from './ConfirmDialog.svelte'
+  import { triage } from './triage.svelte'
+  import type { Theme } from './types'
 
-  let importStatus = $state<{ message: string; isError: boolean } | null>(null)
-  let isImporting = $state(false)
-  // A file that passed validation and parsing, waiting for the user to confirm the replacement.
-  let pendingImport = $state<{ content: string; count: number } | null>(null)
-  let importInputRef = $state<HTMLInputElement | null>(null)
-
-  function handleExportHistory() {
-    const jsonStr = seenStore.exportHistoryJSON()
-    const blob = new Blob([jsonStr], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const downloadAnchor = document.createElement('a')
-    downloadAnchor.href = url
-    downloadAnchor.download = `reporadar-history-${new Date().toISOString().slice(0, 10)}.json`
-    document.body.appendChild(downloadAnchor)
-    downloadAnchor.click()
-    downloadAnchor.remove()
-    URL.revokeObjectURL(url)
-  }
-
-  function resetImportInput() {
-    if (importInputRef) importInputRef.value = ''
-  }
-
-  function handleImportHistory(e: Event) {
-    const target = e.target as HTMLInputElement
-    const file = target.files?.[0]
-    if (!file) return
-
-    const validation = validateImportFile(file)
-    if (!validation.ok) {
-      importStatus = { message: validation.error, isError: true }
-      resetImportInput()
-      return
-    }
-
-    isImporting = true
-    const reader = new FileReader()
-    reader.onload = (event) => {
-      try {
-        const content = event.target?.result as string
-        if (!content) {
-          importStatus = { message: 'File is empty.', isError: true }
-          resetImportInput()
-          return
-        }
-        const parsed = parseHistoryImport(content)
-        if (!parsed.ok) {
-          importStatus = { message: parsed.error, isError: true }
-          resetImportInput()
-          return
-        }
-        // Nothing is written yet. The user confirms the replacement first.
-        importStatus = null
-        pendingImport = { content, count: parsed.count }
-      } finally {
-        isImporting = false
-      }
-    }
-    reader.onerror = () => {
-      importStatus = { message: 'Failed to read file.', isError: true }
-      isImporting = false
-      resetImportInput()
-    }
-    reader.readAsText(file)
-  }
-
-  function cancelImport() {
-    pendingImport = null
-    resetImportInput()
-  }
-
-  async function confirmImport() {
-    const pending = pendingImport
-    if (!pending) return
-    pendingImport = null
-    isImporting = true
-    try {
-      const res = await seenStore.importHistoryJSON(pending.content)
-      if (res.success) {
-        importStatus = {
-          message: `Successfully imported ${res.count} history records (overwritten).`,
-          isError: false,
-        }
-      } else {
-        importStatus = {
-          message: res.error || 'Failed to import history JSON.',
-          isError: true,
-        }
-      }
-    } finally {
-      isImporting = false
-      resetImportInput()
-      // The input was disabled during the import, so return focus to it once it is enabled again.
-      await tick()
-      importInputRef?.focus()
-    }
-  }
-
-  const shortcuts: { keys: string[]; action: string }[] = [
-    { keys: ['1'], action: 'Go to the Feed' },
-    { keys: ['2'], action: 'Go to Saved' },
-    { keys: ['3'], action: 'Go to History' },
-    { keys: ['4', 'Shift+?'], action: 'Open Settings' },
-    { keys: ['J'], action: 'Move focus to the next card' },
-    { keys: ['K'], action: 'Move focus to the previous card' },
-    { keys: ['S'], action: 'Bookmark the focused card' },
-    { keys: ['D'], action: 'Mark the focused card as seen' },
-    { keys: ['U'], action: 'Undo the last seen mark while the "Marked as seen" notice is showing (about 4 seconds)' },
-    { keys: ['Esc'], action: 'Close a dialog, or return to the Feed' },
+  const THEMES: { id: Theme; label: string }[] = [
+    { id: 'system', label: 'System' },
+    { id: 'light', label: 'Light' },
+    { id: 'dark', label: 'Dark' },
   ]
+
+  let message = $state<{ ok: boolean; text: string } | null>(null)
+  let pendingImport = $state<{ name: string; text: string } | null>(null)
+  let clearing = $state<'saved' | 'seen' | null>(null)
+
+  function localDate(now: Date = new Date()): string {
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+  }
+
+  function exportTriage() {
+    const url = URL.createObjectURL(new Blob([triage.exportJson()], { type: 'application/json' }))
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `repo-radar-${localDate()}.json`
+    link.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+
+  async function chooseImport(event: Event) {
+    const input = event.currentTarget
+    if (!(input instanceof HTMLInputElement)) return
+    const file = input.files?.[0]
+    input.value = ''
+    if (!file) return
+    try {
+      pendingImport = { name: file.name, text: await file.text() }
+      message = null
+    } catch {
+      message = { ok: false, text: 'Could not read that file.' }
+    }
+  }
+
+  function confirmImport() {
+    if (!pendingImport) return
+    const result = triage.importJson(pendingImport.text)
+    pendingImport = null
+    message = result.ok
+      ? { ok: true, text: `Imported ${result.saved} saved and ${result.seen} seen repos.` }
+      : { ok: false, text: result.error }
+  }
+
+  function clearSaved() {
+    triage.clearSaved()
+    clearing = null
+  }
+
+  function clearSeen() {
+    triage.clearSeen()
+    clearing = null
+  }
 </script>
 
-{#snippet sunIconSnippet()}
-  <Icon name="sun" size={13} aria-hidden="true" />
-{/snippet}
+<section class="view">
+  <header class="head">
+    <h1>Settings</h1>
+  </header>
 
-{#snippet moonIconSnippet()}
-  <Icon name="moon" size={13} aria-hidden="true" />
-{/snippet}
-
-<div class="space-y-6 w-full">
-  {#if seenStore.persistenceError}
-    <div
-      role="alert"
-      class="flex items-start justify-between gap-3 px-3.5 py-2.5 rounded-md border border-[var(--badge-red-text)]/40 bg-[var(--badge-red-bg)] text-[var(--badge-red-text)] text-sm font-sans"
-    >
-      <span class="min-w-0 break-words">Storage Warning: {seenStore.persistenceError}</span>
-      <button
-        type="button"
-        onclick={() => (seenStore.persistenceError = null)}
-        class="shrink-0 min-h-11 sm:min-h-10 px-2 rounded font-medium underline underline-offset-2 hover:opacity-80 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)]"
-      >
-        Dismiss
-      </button>
+  <section class="set" aria-labelledby="theme-title">
+    <div>
+      <h2 id="theme-title">Theme</h2>
+      <p>System follows your device. Light and dark stay fixed.</p>
     </div>
-  {/if}
-
-  <!-- Preferences Card -->
-  <div class="bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-lg shadow-[var(--card-shadow)] p-5 sm:p-6 space-y-5">
-    <div class="flex items-center gap-2 border-b border-[var(--border-subtle)] pb-3">
-      <Icon name="settings" size={18} class="text-[var(--accent-signal)]" aria-hidden="true" />
-      <h2 class="font-display text-lg font-semibold text-[var(--text-main)] tracking-tight">
-        Application Preferences
-      </h2>
-    </div>
-
-    <div class="space-y-4">
-      <!-- 1. Theme Preference -->
-      <ToggleSwitch
-        checked={isDark}
-        onChange={(val) => (isDark = val)}
-        label="Appearance Theme"
-        description="Select your preferred color theme (Dark / Light)"
-        iconInactive={sunIconSnippet}
-        iconActive={moonIconSnippet}
-      />
-
-      <div class="border-t border-[var(--border-subtle)] pt-4">
-        <!-- 2. Single-key Shortcuts -->
-        <ToggleSwitch
-          checked={characterShortcuts}
-          onChange={(val) => (characterShortcuts = val)}
-          label="Single-key shortcuts"
-          description="J, K, S, D, U and 1–4 act on the feed. Turn them off if they clash with a screen reader or your keyboard layout. Escape always works."
-        />
-      </div>
-
-      <div class="border-t border-[var(--border-subtle)] pt-4">
-        <!-- 3. Scroll-Past Auto-Seen -->
-        <ToggleSwitch
-          checked={seenStore.autoSeenOnScroll}
-          onChange={(val) => (seenStore.autoSeenOnScroll = val)}
-          label="Scroll-Past Auto-Seen"
-          description="Automatically mark repositories as seen when scrolled past"
-        />
-      </div>
-
-      <div class="border-t border-[var(--border-subtle)] pt-4">
-        <!-- 4. Mobile Touch Swipe Gestures -->
-        <ToggleSwitch
-          checked={seenStore.swipeGesturesEnabled}
-          onChange={(val) => (seenStore.swipeGesturesEnabled = val)}
-          label="Mobile Touch Swipe Gestures"
-          description="Enable swipe right (bookmark) & swipe left (seen) on mobile devices"
-        />
-      </div>
-    </div>
-  </div>
-
-  <!-- History Data Management Card -->
-  <div class="bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-lg shadow-[var(--card-shadow)] p-5 sm:p-6 space-y-4">
-    <div class="flex items-center gap-2 border-b border-[var(--border-subtle)] pb-3">
-      <Icon name="clock" size={18} class="text-[var(--accent-signal)]" aria-hidden="true" />
-      <h2 class="font-display text-lg font-semibold text-[var(--text-main)] tracking-tight">
-        History Data Management
-      </h2>
-    </div>
-
-    <p class="text-sm font-sans text-[var(--text-muted)] leading-relaxed">
-      Export your seen repository history as a JSON file, or import one. Importing replaces your current history after you confirm. Files up to 2 MiB are accepted.
-    </p>
-
-    <div class="flex flex-col sm:flex-row sm:flex-wrap gap-2.5 sm:gap-3">
-      <button
-        type="button"
-        onclick={handleExportHistory}
-        class="inline-flex items-center justify-center w-full sm:w-auto min-h-11 sm:min-h-10 px-4 py-2 rounded-md border border-[var(--control-border)] bg-[var(--bg-surface)] text-sm font-sans font-medium text-[var(--text-main)] hover:bg-[var(--bg-surface-hover)] transition-colors btn-press focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)]"
-      >
-        Export History ({seenStore.seenSize})
-      </button>
-
-      <label
-        class="inline-flex items-center justify-center w-full sm:w-auto min-h-11 sm:min-h-10 px-4 py-2 rounded-md border border-[var(--accent-signal)]/40 bg-[var(--accent-signal-soft-bg)] text-sm font-sans font-medium text-[var(--accent-signal-soft-text)] hover:opacity-90 transition-opacity cursor-pointer btn-press has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--accent-signal)] {isImporting ? 'opacity-50 pointer-events-none' : ''}"
-      >
-        <span>{isImporting ? 'Importing...' : 'Import History (.json)'}</span>
-        <input
-          bind:this={importInputRef}
-          type="file"
-          accept=".json,application/json"
-          disabled={isImporting}
-          onchange={handleImportHistory}
-          class="sr-only"
-        />
-      </label>
-    </div>
-
-    {#if importStatus}
-      <div
-        role={importStatus.isError ? 'alert' : 'status'}
-        class="px-3.5 py-2.5 rounded-md border text-sm font-sans {importStatus.isError ? 'bg-[var(--badge-red-bg)] text-[var(--badge-red-text)] border-[var(--badge-red-text)]/40' : 'bg-[var(--accent-signal-soft-bg)] text-[var(--accent-signal-soft-text)] border-[var(--accent-signal)]/40'}"
-      >
-        {importStatus.message}
-      </div>
-    {/if}
-  </div>
-
-  <!-- Keyboard Shortcuts Cheat-sheet Card -->
-  <div class="bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-lg shadow-[var(--card-shadow)] p-5 sm:p-6 space-y-4">
-    <div class="flex items-center gap-2 border-b border-[var(--border-subtle)] pb-3">
-      <Icon name="keyboard" size={18} class="text-[var(--accent-signal)]" aria-hidden="true" />
-      <h2 class="font-display text-lg font-semibold text-[var(--text-main)] tracking-tight">
-        Keyboard Shortcuts Reference
-      </h2>
-    </div>
-
-    <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6">
-      {#each shortcuts as item}
-        <div class="flex items-center gap-3 py-2.5 border-b border-[var(--border-subtle)]">
-          <dt class="shrink-0 min-w-[6.5rem] flex items-center gap-1.5">
-            {#each item.keys as key, i}
-              {#if i > 0}
-                <span class="text-xs font-sans text-[var(--text-muted)]">or</span>
-              {/if}
-              <kbd>{key}</kbd>
-            {/each}
-          </dt>
-          <dd class="text-sm font-sans text-[var(--text-main)] leading-snug">{item.action}</dd>
-        </div>
+    <div class="seg" role="group" aria-label="Theme">
+      {#each THEMES as theme (theme.id)}
+        <button type="button" aria-pressed={triage.theme === theme.id} onclick={() => (triage.theme = theme.id)}>
+          {theme.label}
+        </button>
       {/each}
-    </dl>
+    </div>
+  </section>
 
-    <p class="text-sm font-sans text-[var(--text-muted)] leading-relaxed">
-      Single-key shortcuts can be turned off in Application Preferences. Escape always works.
-    </p>
-  </div>
-</div>
+  <section class="set" aria-labelledby="data-title">
+    <div>
+      <h2 id="data-title">Data</h2>
+      <p>Saved and seen repos live only in this browser. Export a JSON copy to move them, or import one to replace them.</p>
+    </div>
+    <div class="stack">
+      <div class="actions">
+        <button type="button" class="btn" onclick={exportTriage}>Export JSON</button>
+        <label class="btn file">
+          Import JSON
+          <input type="file" accept="application/json,.json" onchange={chooseImport} />
+        </label>
+      </div>
+      {#if message}
+        <p class="msg" class:error={!message.ok} role="status">{message.text}</p>
+      {/if}
+    </div>
+  </section>
 
-<!-- Replace History Confirmation Modal -->
-<ConfirmModal
-  isOpen={pendingImport !== null}
-  title="Replace seen history?"
-  message="This replaces your current seen history with {pendingImport?.count ?? 0} repositories from the file. Your current history will be lost."
-  confirmText="Replace history"
-  onConfirm={confirmImport}
-  onClose={cancelImport}
+  <section class="set" aria-labelledby="remove-title">
+    <div>
+      <h2 id="remove-title">Remove data</h2>
+      <p>Clearing cannot be undone. Repos cleared from Seen return to Discover.</p>
+    </div>
+    <div class="actions">
+      <button type="button" class="btn" onclick={() => (clearing = 'saved')}>Clear saved</button>
+      <button type="button" class="btn" onclick={() => (clearing = 'seen')}>Clear seen</button>
+    </div>
+  </section>
+
+  <section class="set" aria-labelledby="about-title">
+    <div>
+      <h2 id="about-title">About</h2>
+      <p>RepoRadar is open source. Trending repository data comes from <a href="https://trendshift.io" target="_blank" rel="noopener noreferrer">trendshift.io</a>.</p>
+    </div>
+    <ul class="links">
+      <li><a href="https://github.com/quantavil/repo-radar" target="_blank" rel="noopener noreferrer">github.com/quantavil/repo-radar</a></li>
+      <li><a href="https://github.com/quantavil/trendshift" target="_blank" rel="noopener noreferrer">github.com/quantavil/trendshift</a></li>
+    </ul>
+  </section>
+</section>
+
+<ConfirmDialog
+  open={pendingImport !== null}
+  title="Replace your data?"
+  body={`This replaces every saved and seen repo in this browser with the contents of ${pendingImport?.name ?? 'the selected file'}. Export first if you want to keep the current data.`}
+  confirmLabel="Replace data"
+  danger
+  onconfirm={confirmImport}
+  oncancel={() => (pendingImport = null)}
 />
+
+<ConfirmDialog
+  open={clearing === 'saved'}
+  title="Clear all saved repos?"
+  body="This removes every saved repo from this browser and cannot be undone."
+  confirmLabel="Clear saved"
+  danger
+  onconfirm={clearSaved}
+  oncancel={() => (clearing = null)}
+/>
+
+<ConfirmDialog
+  open={clearing === 'seen'}
+  title="Clear all seen repos?"
+  body="This removes every seen repo from this browser and cannot be undone. Discover will show them again."
+  confirmLabel="Clear seen"
+  danger
+  onconfirm={clearSeen}
+  oncancel={() => (clearing = null)}
+/>
+
+<style>
+  .view {
+    max-width: 1240px;
+    margin: 0 auto;
+    padding: 0 20px 56px;
+  }
+  .head {
+    padding: 22px 12px 14px;
+  }
+  h1 {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  .set {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 14px 32px;
+    padding: 20px 12px;
+    border-top: 1px solid var(--hair);
+  }
+  h2 {
+    margin: 0 0 4px;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .set p {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--ink-2);
+  }
+  .set a {
+    color: var(--ink);
+    text-decoration-color: var(--hair-2);
+    text-underline-offset: 3px;
+  }
+  .set a:hover {
+    text-decoration-color: var(--accent);
+  }
+  .seg {
+    display: inline-flex;
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid var(--hair-2);
+    border-radius: 9px;
+    background: var(--panel);
+  }
+  .seg button {
+    height: 30px;
+    padding: 0 12px;
+    border-radius: 7px;
+    color: var(--ink-3);
+    font: 500 13px/1 var(--ui);
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .seg button:hover {
+    color: var(--ink);
+  }
+  .seg button[aria-pressed="true"] {
+    background: var(--ink);
+    color: var(--bg);
+  }
+  .stack {
+    display: grid;
+    gap: 10px;
+    justify-items: start;
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 34px;
+    padding: 0 12px;
+    border: 1px solid var(--hair-2);
+    border-radius: 8px;
+    background: var(--panel);
+    color: var(--ink);
+    font: 500 13px/1 var(--ui);
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .btn:hover {
+    background: var(--hover);
+  }
+  .file {
+    cursor: pointer;
+  }
+  .file input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .file:focus-within,
+  .seg button:focus-visible,
+  .btn:focus-visible,
+  .set a:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .msg {
+    font-size: 13px;
+    color: var(--ink-2);
+  }
+  .msg.error {
+    color: var(--accent);
+  }
+  .links {
+    display: grid;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-family: var(--mono);
+    font-size: 12.5px;
+  }
+  @media (pointer: coarse) {
+    .seg button,
+    .btn {
+      height: 44px;
+    }
+    .links a {
+      display: inline-block;
+      padding: 10px 0;
+    }
+  }
+  @media (max-width: 719px) {
+    .view {
+      padding: 0 0 calc(88px + env(safe-area-inset-bottom));
+    }
+    .head {
+      padding: 18px 16px 12px;
+    }
+    .set {
+      grid-template-columns: minmax(0, 1fr);
+      padding: 20px 16px;
+    }
+    .seg {
+      display: flex;
+    }
+    .seg button {
+      flex: 1;
+    }
+  }
+</style>
