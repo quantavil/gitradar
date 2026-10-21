@@ -9,9 +9,8 @@
   import Toast from './lib/Toast.svelte'
 
   let view = $state<View>('discover')
-  // The selected row is what S, D, O act on. `expanded` applies to that row only.
+  // The selected row is what S, D, O act on.
   let selectedKey = $state<string | null>(null)
-  let expanded = $state(true)
   let topHeight = $state(0)
   let toast = $state<{ id: number; message: string } | null>(null)
   let toastSeq = 0
@@ -29,17 +28,11 @@
   function setView(next: View) {
     view = next
     selectedKey = null
-    expanded = true
     window.scrollTo({ top: 0 })
   }
 
   function select(name: string) {
-    if (name === activeKey) {
-      expanded = !expanded
-    } else {
-      selectedKey = name
-      expanded = true
-    }
+    selectedKey = name
   }
 
   // Save or dismiss, then move the selection to the neighbouring row so the next key press has a target.
@@ -49,7 +42,6 @@
     if (kind === 'save') triage.save(repo)
     else triage.dismiss(repo)
     selectedKey = after?.full_name ?? null
-    expanded = true
     toast = { id: ++toastSeq, message: `${kind === 'save' ? 'Saved' : 'Dismissed'} ${repo.full_name}` }
   }
 
@@ -59,7 +51,6 @@
     toast = null
     if (last) {
       selectedKey = last.full_name
-      expanded = true
     }
   }
 
@@ -70,20 +61,15 @@
     const target = e.target
     if (target instanceof HTMLElement && (target.isContentEditable || target.closest('input, textarea'))) return
 
-    if (e.key === 'Escape') {
-      expanded = false
-      return
-    }
     if (view !== 'discover') return
 
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'j' || e.key === 'k') {
       if (flat.length === 0) return
       e.preventDefault()
       const at = Math.max(0, flat.findIndex((r) => r.full_name === activeKey))
-      const step = e.key === 'ArrowDown' ? 1 : -1
+      const step = e.key === 'ArrowDown' || e.key === 'j' ? 1 : -1
       const next = flat[Math.min(flat.length - 1, Math.max(0, at + step))]
       selectedKey = next.full_name
-      expanded = true
       return
     }
 
@@ -105,7 +91,6 @@
     {#if view === 'discover'}
       <DiscoverView
         selectedKey={activeKey}
-        {expanded}
         onselect={select}
         onsave={(repo) => triageRepo(repo, 'save')}
         ondismiss={(repo) => triageRepo(repo, 'dismiss')}

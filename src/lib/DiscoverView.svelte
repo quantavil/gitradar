@@ -7,13 +7,13 @@
 
   interface Props {
     selectedKey: string | null
-    expanded: boolean
+    expanded?: boolean
     onselect: (name: string) => void
     onsave: (repo: Repo) => void
     ondismiss: (repo: Repo) => void
   }
 
-  let { selectedKey, expanded, onselect, onsave, ondismiss }: Props = $props()
+  let { selectedKey, onselect, onsave, ondismiss }: Props = $props()
 
   // Periods are rendered a few at a time so the DOM stays bounded however far the feed runs.
   const PERIODS_FIRST = 1
@@ -107,16 +107,6 @@
     </p>
   {/if}
   <div class="lg">
-    <div class="lg-head" aria-hidden="true">
-      <span class="lg-rk">#</span>
-      <span class="lg-nm">Repository</span>
-      <span class="lg-gain">Gained {windowLabel}</span>
-      <span class="lg-tot">Stars</span>
-      <span class="lg-lang">Language</span>
-      <span class="lg-age">Age</span>
-      <span class="lg-soc">Signal</span>
-    </div>
-
     {#each visible as period (period.key)}
       {@const gainMax = Math.max(...period.repos.map((r) => r.stars_gained))}
       <section>
@@ -132,7 +122,6 @@
               {gainMax}
               mode="discover"
               selected={selectedKey === repo.full_name}
-              expanded={selectedKey === repo.full_name && expanded}
               onselect={() => onselect(repo.full_name)}
               onsave={() => onsave(repo)}
               ondismiss={() => ondismiss(repo)}

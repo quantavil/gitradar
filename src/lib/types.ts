@@ -42,7 +42,6 @@ export const SORTS: { id: SortKey; label: string; short?: string }[] = [
 ]
 
 export type View = 'discover' | 'saved' | 'seen' | 'settings'
-export type Social = 'hackernews' | 'reddit' | 'x'
 export type Theme = 'system' | 'light' | 'dark'
 
 export interface Repo {

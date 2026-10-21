@@ -2,17 +2,16 @@
   "name": "gitradar",
   "version": "0.0.0",
   "devDependencies": {
-    "@sveltejs/vite-plugin-svelte": "^7.3.0",
+    "@sveltejs/vite-plugin-svelte": "^7.3.1",
     "@tailwindcss/vite": "^4.3.3",
     "@tsconfig/svelte": "^5.0.8",
-    "@types/node": "^24.13.3",
-    "playwright": "^1.62.1",
-    "svelte": "^5.56.9",
-    "svelte-check": "^4.7.6",
+    "@types/node": "^24.19.2",
+    "svelte": "^5.57.2",
+    "svelte-check": "^4.7.7",
     "tailwindcss": "^4.3.3",
     "typescript": "~6.0.3",
-    "vite": "^8.2.1",
-    "vitest": "^4.1.11"
+    "vite": "^8.3.4",
+    "vitest": "^4.1.12"
   },
   "private": true,
   "scripts": {

@@ -124,9 +124,9 @@
     if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return
     // A dialog or an open dropdown owns the keyboard; the search box owns the letters it types.
     if (isTyping(event.target) || document.querySelector('dialog[open], [role="listbox"]')) return
-    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'j' || event.key === 'k') {
       event.preventDefault()
-      void move(event.key === 'ArrowDown' ? 1 : -1)
+      void move(event.key === 'ArrowDown' || event.key === 'j' ? 1 : -1)
       return
     }
     if (event.key === 'Escape') {
@@ -197,15 +197,6 @@
     </div>
   {:else}
     <div class="lg">
-      <div class="lg-head" aria-hidden="true">
-        <span class="lg-rk"></span>
-        <span class="lg-nm">Repository</span>
-        <span class="lg-gain">Gained</span>
-        <span class="lg-tot">Stars</span>
-        <span class="lg-lang">Language</span>
-        <span class="lg-age">Age</span>
-        <span class="lg-soc">Signal</span>
-      </div>
       <ol class="lg-list">
         {#each shown as entry (entry.repo.full_name)}
           <RepoRow
@@ -213,7 +204,6 @@
             {gainMax}
             {mode}
             selected={selectedKey === entry.repo.full_name}
-            expanded={expandedKey === entry.repo.full_name}
             onselect={() => select(entry.repo.full_name)}
             onunsave={() => unsave(entry.repo.full_name)}
             onrestore={() => restore(entry.repo.full_name)}

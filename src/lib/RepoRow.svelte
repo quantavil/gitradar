@@ -26,7 +26,6 @@
     gainMax,
     mode = 'discover',
     selected = false,
-    expanded = false,
     onselect,
     onsave,
     ondismiss,
@@ -41,20 +40,13 @@
   const GESTURE_GRACE_MS = 400
   const LEAVE_MS = 180
 
-  const SOCIALS = [
-    { id: 'hackernews', name: 'Hacker News', tag: 'HN' },
-    { id: 'reddit', name: 'Reddit', tag: 'RD' },
-    { id: 'x', name: 'X', tag: 'X' },
-  ]
   const CREATED = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeZone: 'UTC' })
 
-  const swipeOn = $derived(swipe ?? mode === 'discover')
+  const swipeOn = $derived(swipe ?? true)
   const owner = $derived(repo.full_name.split('/')[0])
   const name = $derived(repo.full_name.slice(owner.length + 1))
-  const socials = $derived(SOCIALS.filter((s) => repo.social_mention_platforms.includes(s.id)))
   const isNew = $derived(isNewRepo(repo.created_at))
   const barPct = $derived(gainMax && gainMax > 0 ? Math.max(2, Math.round((repo.stars_gained / gainMax) * 100)) : 0)
-  const detailId = $derived(`details-${repo.full_name}`)
 
   // Swipe state. `drag` is only read inside the pointer handlers, so it stays out of reactivity.
   let drag: { id: number; x: number; y: number; active: boolean } | null = null
@@ -63,7 +55,7 @@
   let leaving = $state(false)
   let lastGesture = 0
   let leaveTimer: ReturnType<typeof setTimeout> | undefined
-  let rowButton: HTMLButtonElement | undefined
+  let cardElement: HTMLElement | undefined
 
   $effect(() => () => clearTimeout(leaveTimer))
 
@@ -71,7 +63,13 @@
   const reveal = $derived(leaving ? 0 : Math.min(1, Math.abs(offset) / SWIPE_PX))
 
   function pointerDown(e: PointerEvent) {
-    if (!swipeOn || e.pointerType === 'mouse' || !e.isPrimary) return
+    if (!swipeOn || !e.isPrimary) return
+    // Allow touch/pen, or left click for mouse on desktop
+    if (e.pointerType === 'mouse' && e.button !== 0) return
+    // Prevent drag gesture when interacting with links
+    const target = e.target as HTMLElement | null
+    if (target?.closest('a')) return
+
     drag = { id: e.pointerId, x: e.clientX, y: e.clientY, active: false }
     settling = false
   }
@@ -88,9 +86,15 @@
         return
       }
       drag.active = true
-      rowButton?.setPointerCapture(e.pointerId)
+      cardElement?.setPointerCapture(e.pointerId)
     }
-    offset = dx
+    // Tactile resistance past threshold
+    if (Math.abs(dx) > SWIPE_PX) {
+      const extra = Math.abs(dx) - SWIPE_PX
+      offset = Math.sign(dx) * (SWIPE_PX + extra * 0.45)
+    } else {
+      offset = dx
+    }
   }
 
   function settle(pointerId: number, allowed: boolean) {
@@ -100,7 +104,12 @@
     if (!moved) return
     lastGesture = performance.now()
     settling = true
-    const action = offset >= SWIPE_PX ? onsave : offset <= -SWIPE_PX ? ondismiss : undefined
+    const action =
+      offset >= SWIPE_PX
+        ? mode === 'saved' ? onunsave : onsave
+        : offset <= -SWIPE_PX
+          ? mode === 'seen' ? onrestore : ondismiss
+          : undefined
     if (allowed && action) {
       leaving = true
       offset = Math.sign(offset) * window.innerWidth
@@ -119,104 +128,100 @@
 <li class="item" id={`repo-${repo.full_name}`} data-repo-key={repo.full_name}>
   <div class="track" data-dir={dir} style:--p={reveal}>
     <div class="reveal" aria-hidden="true">
-      <span class="l">Save</span>
-      <span class="r">Dismiss</span>
+      <div class="tag-reveal left" class:ready={offset >= SWIPE_PX}>
+        <Icon name="save" size={16} />
+        <span>{mode === 'saved' ? 'Unsave' : 'Save'}</span>
+      </div>
+      <div class="tag-reveal right" class:ready={offset <= -SWIPE_PX}>
+        <Icon name={mode === 'seen' ? 'undo' : 'dismiss'} size={16} />
+        <span>{mode === 'seen' ? 'Restore' : 'Dismiss'}</span>
+      </div>
     </div>
-    <button
-      bind:this={rowButton}
-      type="button"
-      class="lg-row"
+    <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
+    <article
+      bind:this={cardElement}
+      class="card"
       class:is-sel={selected}
       class:settling
       class:leaving
       style:transform={offset ? `translateX(${offset}px)` : null}
-      aria-expanded={expanded}
-      aria-controls={expanded ? detailId : undefined}
+      tabindex="0"
+      role="button"
       onclick={select}
+      onkeydown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          select()
+        }
+      }}
       onpointerdown={pointerDown}
       onpointermove={pointerMove}
       onpointerup={(e) => settle(e.pointerId, true)}
       onpointercancel={(e) => settle(e.pointerId, false)}
     >
-      <span class="lg-rk">{index !== undefined ? String(index).padStart(2, '0') : ''}</span>
-      <span class="lg-nm">
-        <span class="nm-line">
-          <span class="own">{owner}/</span><span class="rep">{name}</span>
-          {#if isNew}<span class="badge new">New</span>{/if}
-        </span>
-        <span class="desc" class:none={!repo.description}>{repo.description || 'No description'}</span>
-      </span>
-      <span class="lg-gain">
-        <span class="gain">
-          <span class="gain-val">{formatGain(repo.stars_gained)}</span>
-          {#if gainMax !== undefined}<span class="hbar"><span style:width="{barPct}%"></span></span>{/if}
-        </span>
-      </span>
-      <span class="lg-tot">{formatCount(repo.stars_total)}</span>
-      <span class="lg-lang">
-        <span class="lang">
-          <span class="dot" style:background={languageColor(repo.language)}></span>
-          <span class="lang-name">{repo.language}</span>
-        </span>
-      </span>
-      <span class="lg-age">{formatAge(repo.created_at)}</span>
-      <span class="lg-soc">
-        <span class="socs">
-          {#each socials as s (s.id)}
-            <span class="soc-i" title="Mentioned on {s.name}">{s.tag}</span>
-          {/each}
-        </span>
-      </span>
-    </button>
-  </div>
-
-  {#if expanded}
-    <div class="detail" id={detailId}>
-      <div class="main">
-        {#if repo.description}<p class="full">{repo.description}</p>{/if}
-        {#if repo.tags.length}
-          <ul class="tags">
-            {#each repo.tags as tag (tag)}<li class="tag">{tag}</li>{/each}
-          </ul>
-        {:else}
-          <p class="none">No topics listed</p>
-        {/if}
-        <p class="why">
-          Why it is here: rank <b>#{repo.rank}</b>, <b>{formatGain(repo.stars_gained)}</b> stars gained this period,
-          trend score <b>{repo.score}</b>.
-          {#if isNew}<span class="badge new">New repo</span>{/if}
-          {#if socials.length}
-            Mentioned on
-            {#each socials as s, n (s.id)}{#if n > 0}{', '}{/if}<span class="via">{s.name}</span>{/each}.
-          {:else}
-            No social mentions in this window.
+      <header class="card-head">
+        <div class="head-title">
+          {#if index !== undefined}
+            <span class="card-rk">{String(index).padStart(2, '0')}</span>
           {/if}
-        </p>
-      </div>
-      <aside class="side">
-        <dl class="meta">
-          <dt>Stars</dt><dd>{formatCount(repo.stars_total)}</dd>
-          <dt>Forks</dt><dd>{formatCount(repo.forks_total)}</dd>
-          <dt>Language</dt><dd>{repo.language}</dd>
-          <dt>Created</dt><dd>{CREATED.format(new Date(repo.created_at))} · {formatAge(repo.created_at)}</dd>
-        </dl>
-        <div class="acts">
-          {#if mode === 'discover'}
-            <button type="button" class="btn pri" onclick={onsave}><Icon name="save" />Save</button>
-            <button type="button" class="btn" onclick={ondismiss}><Icon name="dismiss" />Dismiss</button>
-          {:else if mode === 'saved'}
-            <button type="button" class="btn" onclick={onunsave}><Icon name="save" />Unsave</button>
-          {:else}
-            <button type="button" class="btn pri" onclick={onrestore}><Icon name="undo" />Restore</button>
-            <button type="button" class="btn" onclick={onsave}><Icon name="save" />Save</button>
-          {/if}
-          <a class="btn" href={repo.github_url} target="_blank" rel="noopener noreferrer">
-            <Icon name="external-link" /><span class="long">Open on GitHub</span><span class="short">Open</span>
+          <a
+            class="repo-link"
+            href={repo.github_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            onclick={(e) => e.stopPropagation()}
+          >
+            <span class="own">{owner}/</span><span class="rep">{name}</span>
           </a>
+          {#if isNew}<span class="badge new">New</span>{/if}
         </div>
-      </aside>
-    </div>
-  {/if}
+
+        <div class="head-meta">
+          <div class="gain">
+            <span class="gain-val">{formatGain(repo.stars_gained)}</span>
+            {#if gainMax !== undefined}
+              <span class="hbar"><span style:width="{barPct}%"></span></span>
+            {/if}
+          </div>
+        </div>
+      </header>
+
+      <p class="desc" class:none={!repo.description}>
+        {repo.description || 'No description'}
+      </p>
+
+      {#if repo.tags.length}
+        <ul class="tags">
+          {#each repo.tags as tag (tag)}
+            <li class="tag">{tag}</li>
+          {/each}
+        </ul>
+      {/if}
+
+      <footer class="card-foot">
+        <div class="stats">
+          {#if repo.language}
+            <span class="stat lang">
+              <span class="dot" style:background={languageColor(repo.language)}></span>
+              <span class="lang-name">{repo.language}</span>
+            </span>
+          {/if}
+          <span class="stat" title="Total Stars">
+            <Icon name="star" size={14} />
+            <span>{formatCount(repo.stars_total)}</span>
+          </span>
+          <span class="stat" title="Total Forks">
+            <Icon name="fork" size={14} />
+            <span>{formatCount(repo.forks_total)}</span>
+          </span>
+          <span class="stat" title="Created date">
+            <Icon name="clock" size={14} />
+            <span>{CREATED.format(new Date(repo.created_at))} · {formatAge(repo.created_at)}</span>
+          </span>
+        </div>
+      </footer>
+    </article>
+  </div>
 </li>
 
 <style>
@@ -224,7 +229,7 @@
     border-bottom: 1px solid var(--hair);
     scroll-margin-top: calc(var(--top-h) + 8px);
     content-visibility: auto;
-    contain-intrinsic-size: auto 64px;
+    contain-intrinsic-size: auto 150px;
   }
 
   .track {
@@ -238,19 +243,40 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 24px;
-    font-size: 14px;
-    font-weight: 600;
+    padding: 0 28px;
     opacity: var(--p, 0);
     pointer-events: none;
+    transition: background-color 0.15s ease;
   }
 
-  .reveal .l {
+  .tag-reveal {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font: 600 13px/1 var(--font-ui);
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    opacity: 0.8;
+    transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.15s ease;
+  }
+
+  .tag-reveal.left {
     color: var(--accent);
+    transform: translateX(calc((var(--p, 0) - 1) * 14px));
   }
 
-  .reveal .r {
+  .tag-reveal.right {
     color: var(--ink-2);
+    transform: translateX(calc((1 - var(--p, 0)) * 14px));
+  }
+
+  .tag-reveal.ready {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+
+  .tag-reveal.right.ready {
+    color: var(--ink);
   }
 
   .track[data-dir="save"] .reveal {
@@ -261,64 +287,91 @@
     background: var(--hover);
   }
 
-  .track[data-dir="save"] .r,
-  .track[data-dir="dismiss"] .l {
+  .track[data-dir="save"] .right,
+  .track[data-dir="dismiss"] .left {
     visibility: hidden;
   }
 
-  .lg-row.settling {
-    transition: transform 0.18s ease, opacity 0.18s ease;
+  .card {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 18px 20px 16px;
+    background: var(--bg);
+    color: inherit;
+    text-align: left;
+    touch-action: pan-y;
+    border-left: 3px solid transparent;
+    transition: background-color 0.12s, border-left-color 0.12s;
+    user-select: none;
+    -webkit-user-select: none;
   }
 
-  .lg-row.leaving {
+  .card:hover {
+    background: var(--hover);
+  }
+
+  .card.is-sel {
+    background: var(--sel);
+    border-left-color: var(--accent);
+  }
+
+  .card.settling {
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.18s ease;
+  }
+
+  .card.leaving {
     opacity: 0;
   }
 
-  .lg-rk {
-    font: 500 12px/1 var(--font-mono);
+  .card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .head-title {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .card-rk {
+    font: 600 13px/1 var(--font-mono);
     color: var(--ink-3);
   }
 
-  .nm-line {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    min-width: 0;
-    font-size: 14.5px;
+  .repo-link {
+    font-size: 16px;
     line-height: 1.3;
+    font-weight: 600;
+    color: var(--ink);
+    text-decoration: none;
+    word-break: break-word;
+  }
+
+  .repo-link:hover {
+    text-decoration: underline;
   }
 
   .own {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
     color: var(--ink-3);
+    font-weight: 500;
   }
 
   .rep {
-    flex: none;
-    font-weight: 600;
-  }
-
-  .desc {
-    display: block;
-    margin-top: 2px;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-    font-size: 13px;
-    color: var(--ink-2);
-  }
-
-  .desc.none {
-    font-style: italic;
-    color: var(--ink-3);
+    color: var(--ink);
+    font-weight: 700;
   }
 
   .badge {
     flex: none;
-    padding: 3px 5px;
+    padding: 2px 5px;
     border: 1px solid var(--hair-2);
     border-radius: 4px;
     font: 600 9.5px/1 var(--font-mono);
@@ -332,23 +385,30 @@
     border-color: var(--accent);
   }
 
+  .head-meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: none;
+  }
+
   .gain {
     display: flex;
     flex-direction: column;
     align-items: flex-end;
-    gap: 6px;
-    min-width: 0;
+    gap: 4px;
+    min-width: 70px;
   }
 
   .gain-val {
-    font: 600 16px/1 var(--font-mono);
+    font: 600 15px/1 var(--font-mono);
     letter-spacing: -0.01em;
   }
 
   .hbar {
     display: block;
     width: 100%;
-    max-width: 150px;
+    max-width: 90px;
     height: 3px;
     border-radius: 2px;
     background: var(--hair);
@@ -361,182 +421,95 @@
     background: var(--accent);
   }
 
-  .lg-tot,
-  .lg-age {
-    font: 400 12.5px/1 var(--font-mono);
-    color: var(--ink-2);
-    white-space: nowrap;
-  }
-
-  .lang {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    min-width: 0;
-    font-size: 12.5px;
-    color: var(--ink-2);
-    white-space: nowrap;
-  }
-
-  .dot {
-    flex: none;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-  }
-
-  .lang-name {
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .socs {
-    display: flex;
-    justify-content: flex-end;
-    gap: 4px;
-  }
-
-  .soc-i {
-    font: 600 10px/1 var(--font-mono);
-    letter-spacing: 0.04em;
-    color: var(--ink-3);
-  }
-
-  .detail {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 340px;
-    gap: 28px;
-    padding: 4px 12px 20px 66px;
-    background: var(--sel);
-  }
-
-  .full {
-    margin-bottom: 12px;
-    font-size: 14.5px;
+  .desc {
+    margin: 0;
+    font-size: 14px;
     line-height: 1.55;
+    color: var(--ink-2);
+    word-break: break-word;
+  }
+
+  .desc.none {
+    font-style: italic;
+    color: var(--ink-3);
   }
 
   .tags {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
-    margin: 0 0 14px;
+    margin: 0;
     padding: 0;
     list-style: none;
   }
 
   .tag {
-    padding: 5px 9px;
+    padding: 4px 8px;
     border: 1px solid var(--hair-2);
     border-radius: 999px;
-    font: 500 11.5px/1 var(--font-mono);
+    font: 500 11px/1 var(--font-mono);
     color: var(--ink-2);
+    background: var(--panel);
   }
 
-  .none {
-    margin: 0 0 14px;
-    color: var(--ink-3);
-  }
-
-  .why {
+  .card-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px 20px;
+    margin-top: 4px;
     padding-top: 12px;
     border-top: 1px solid var(--hair);
-    font-size: 13px;
-    line-height: 1.6;
+  }
+
+  .stats {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+    font: 400 12.5px/1 var(--font-mono);
     color: var(--ink-2);
   }
 
-  .why b {
-    font-family: var(--font-mono);
-    font-weight: 600;
-    color: var(--ink);
+  .stat {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
   }
 
-  .why .badge {
-    margin: 0 4px;
-    vertical-align: 1px;
-  }
-
-  .via {
-    color: var(--ink);
-  }
-
-  .meta {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 7px 16px;
-    margin: 0 0 14px;
+  .stat.lang {
+    font-family: inherit;
     font-size: 13px;
   }
 
-  .meta dt {
-    color: var(--ink-3);
-  }
-
-  .meta dd {
-    margin: 0;
-    text-align: right;
-    font-family: var(--font-mono);
-    color: var(--ink);
-  }
-
-  .acts {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-
-  .short {
-    display: none;
-  }
-
-  @media (max-width: 1099px) {
-    .detail {
-      grid-template-columns: minmax(0, 1fr);
-      gap: 16px;
-      padding-left: 62px;
-    }
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
   }
 
   @media (max-width: 719px) {
-    .lg-rk {
-      font-size: 11px;
+    .card {
+      padding: 14px 16px;
+      gap: 10px;
     }
 
-    .nm-line {
+    .repo-link {
       font-size: 15px;
     }
 
-    .gain-val {
-      font-size: 15px;
-    }
-
-    .hbar {
-      max-width: 64px;
-    }
-
-    .detail {
-      padding: 0 16px 18px;
-    }
-
-    .acts {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+    .head-meta {
       gap: 8px;
     }
 
-    .acts :global(.btn) {
-      height: 48px;
-      padding: 0 8px;
-      font-size: 15px;
+    .hbar {
+      max-width: 60px;
     }
 
-    .long {
-      display: none;
-    }
-
-    .short {
-      display: inline;
+    .stats {
+      gap: 12px;
     }
   }
 </style>
