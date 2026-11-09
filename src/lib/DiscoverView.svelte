@@ -4,6 +4,7 @@
   import { triage } from './triage.svelte'
   import { TIMEFRAMES, type Repo, type Timeframe } from './types'
   import RepoRow from './RepoRow.svelte'
+  import { toast } from './toast.svelte'
 
   interface Props {
     selectedKey: string | null
@@ -27,6 +28,8 @@
 
   let shown = $state(PERIODS_FIRST)
   let sentinel = $state<HTMLElement | null>(null)
+  // Rows scrolled up past the sticky period header count as read, per period.
+  let readNames = $state<Record<string, string[]>>({})
 
   const listKey = $derived(`${feed.timeframe}|${feed.language}|${feed.sort}`)
   const visible = $derived(feed.periods.slice(0, shown))
@@ -38,6 +41,54 @@
   const nextTimeframe = $derived(
     TIMEFRAMES[(TIMEFRAMES.findIndex((t) => t.id === feed.timeframe) + 1) % TIMEFRAMES.length],
   )
+
+  // The boundary is the bottom edge of the sticky header: anything above it has been read.
+  function measureRead() {
+    const header = document.querySelector<HTMLElement>('.period-label')
+    const line = header ? header.getBoundingClientRect().bottom : 0
+    const next: Record<string, string[]> = {}
+    for (const period of visible) {
+      const names: string[] = []
+      for (const repo of period.repos) {
+        const row = document.getElementById(`repo-${repo.full_name}`)
+        if (row && row.getBoundingClientRect().bottom <= line + 1) names.push(repo.full_name)
+      }
+      if (names.length > 0) next[period.key] = names
+    }
+    const same =
+      Object.keys(next).length === Object.keys(readNames).length &&
+      Object.entries(next).every(([k, v]) => readNames[k]?.length === v.length)
+    if (!same) readNames = next
+  }
+
+  function clearRead(period: { key: string; repos: Repo[] }) {
+    const names = new Set(readNames[period.key] ?? [])
+    const repos = period.repos.filter((r) => names.has(r.full_name))
+    if (repos.length === 0) return
+    triage.dismissMany(repos)
+    toast.show(`Cleared ${repos.length} read`)
+  }
+
+  $effect(() => {
+    let frame = 0
+    const onScroll = () => {
+      if (frame) return
+      frame = requestAnimationFrame(() => {
+        frame = 0
+        measureRead()
+      })
+    }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    window.addEventListener('resize', onScroll)
+    // Lists change as rows leave or periods load, which moves the boundary without a scroll.
+    void visible.map((p) => p.repos.length)
+    void tick().then(measureRead)
+    return () => {
+      window.removeEventListener('scroll', onScroll)
+      window.removeEventListener('resize', onScroll)
+      if (frame) cancelAnimationFrame(frame)
+    }
+  })
 
   // A different listing starts again from its current period.
   $effect(() => {
@@ -111,7 +162,13 @@
       <section>
         <h2 class="period-label" class:current={period.current}>
           <span>{period.label}</span>
-          <span>{period.repos.length}</span>
+          {#if readNames[period.key]?.length}
+            <button type="button" class="clear" onclick={() => clearRead(period)}>
+              Clear {readNames[period.key].length} read
+            </button>
+          {:else}
+            <span>{period.repos.length}</span>
+          {/if}
         </h2>
         {#if period.repos.length === 0}
           <p class="caught">All caught up for {windowLabel}.</p>
@@ -157,6 +214,32 @@
 
   .period-label.current {
     color: var(--ink);
+  }
+
+  .clear {
+    margin: -6px -8px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    color: var(--accent-text);
+    font: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    cursor: pointer;
+  }
+
+  .clear:hover {
+    background: var(--hover);
+  }
+
+  .clear:focus-visible {
+    outline: 2px solid var(--accent);
+  }
+
+  @media (pointer: coarse) {
+    .clear {
+      margin: -12px -10px;
+      padding: 12px 10px;
+    }
   }
 
   .sentinel {

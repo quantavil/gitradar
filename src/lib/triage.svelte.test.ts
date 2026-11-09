@@ -134,6 +134,17 @@ describe('Triage', () => {
     expect(triage.lastAction).toBeNull()
   })
 
+  it('dismissMany marks every repo seen and one undo reverses the whole batch', async () => {
+    const triage = await readyTriage()
+    triage.dismiss(repo('org/earlier'))
+    triage.dismissMany([repo('org/a'), repo('org/b'), repo('org/c')])
+    expect(triage.seen).toHaveLength(4)
+
+    triage.undo()
+    expect(triage.seen.map((e) => e.repo.full_name)).toEqual(['org/earlier'])
+    expect(triage.lastAction?.repo.full_name).toBe('org/earlier')
+  })
+
   it('undoes actions newest first and keeps at most 20', async () => {
     const triage = await readyTriage()
     for (let index = 0; index < 25; index += 1) {

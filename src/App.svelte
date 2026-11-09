@@ -41,7 +41,7 @@
     if (kind === 'save') triage.save(repo)
     else triage.dismiss(repo)
     selectedKey = after?.full_name ?? null
-    toast.show(`${kind === 'save' ? 'Saved' : 'Dismissed'} ${repo.full_name}`)
+    toast.show(`${kind === 'save' ? 'Saved' : 'Dismissed'} ${repo.full_name.split('/')[1] ?? repo.full_name}`)
   }
 
   function undoLast() {

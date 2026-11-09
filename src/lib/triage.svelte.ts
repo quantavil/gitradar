@@ -33,6 +33,8 @@ interface UndoRecord {
   kind: UndoKind
   repo: Repo
   at: number
+  // Records made by one bulk action share a group, so a single Undo reverses them together.
+  group?: number
   // For save and dismiss: the entry that moved out of the other collection.
   // For unsave and restore: the entry that was removed, and where it lived.
   previous: { collection: Collection; entry: Entry } | null
@@ -188,6 +190,7 @@ export class Triage {
   #undo = $state.raw<UndoRecord[]>([])
   #theme = $state<Theme>('system')
   #version = 0
+  #group = 0
   // Mutations that arrive before IndexedDB has loaded are replayed once it has.
   #queue: (() => void)[] = []
   #savedList = $derived(newestFirst(this.#saved))
@@ -260,6 +263,15 @@ export class Triage {
 
   dismiss(repo: Repo): void {
     this.#run(() => this.#move(repo, 'dismiss'))
+  }
+
+  // Dismisses many repos as one step: one commit, one Undo.
+  dismissMany(repos: Repo[]): void {
+    this.#run(() => {
+      const group = ++this.#group
+      for (const repo of repos) this.#move(repo, 'dismiss', group, false)
+      this.#commit()
+    })
   }
 
   unsave(name: string): void {
@@ -367,7 +379,7 @@ export class Triage {
     else this.#seen = index
   }
 
-  #move(repo: Repo, action: Action): void {
+  #move(repo: Repo, action: Action, group?: number, commit = true): void {
     const target = TARGET[action]
     const source = OTHER[target]
     const key = keyOf(repo.full_name)
@@ -385,10 +397,11 @@ export class Triage {
         kind: action,
         repo: stored,
         at,
+        group,
         previous: previous ? { collection: source, entry: previous } : null,
       },
     ].slice(-UNDO_LIMIT)
-    this.#commit()
+    if (commit) this.#commit()
   }
 
   #remove(collection: Collection, name: string): void {
@@ -425,15 +438,27 @@ export class Triage {
     const stack = [...this.#undo]
     let record = stack.pop()
     while (record && !this.#isCurrent(record)) record = stack.pop()
+    if (!record) {
+      this.#undo = stack
+      return
+    }
+    // A bulk action leaves several records with the same group: reverse them all.
+    const batch = [record]
+    while (record.group !== undefined && stack.at(-1)?.group === record.group) {
+      const next = stack.pop()
+      if (next && this.#isCurrent(next)) batch.push(next)
+    }
     this.#undo = stack
-    if (!record) return
+    for (const item of batch) this.#revert(item)
+    this.#commit()
+  }
 
+  #revert(record: UndoRecord): void {
     const key = keyOf(record.repo.full_name)
     if (record.kind === 'unsave' || record.kind === 'restore') {
       if (record.previous) {
         const { collection, entry } = record.previous
         this.#assign(collection, withEntry(this.#index(collection), key, entry))
-        this.#commit()
       }
       return
     }
@@ -443,7 +468,6 @@ export class Triage {
       const { collection, entry } = record.previous
       this.#assign(collection, withEntry(this.#index(collection), key, entry))
     }
-    this.#commit()
   }
 }
 

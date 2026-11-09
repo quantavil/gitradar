@@ -42,26 +42,26 @@
 <style>
   .toast-wrap {
     position: fixed;
-    inset: auto 0 24px;
+    inset: auto 0 12px;
     z-index: var(--z-toast);
     display: flex;
     justify-content: center;
-    padding: 0 16px;
+    padding: 0 12px;
     pointer-events: none;
   }
 
   .toast {
     display: inline-flex;
     align-items: center;
-    gap: 12px;
-    max-width: min(100%, 460px);
-    padding: 6px 6px 6px 14px;
-    border-radius: 9999px;
-    background: var(--panel);
-    border: 1px solid var(--hair-2);
-    box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.32), 0 2px 6px -1px rgba(0, 0, 0, 0.16);
-    color: var(--ink);
-    font: 500 13px/1.3 var(--font-ui);
+    gap: 4px;
+    max-width: min(100%, 320px);
+    padding: 0 4px 0 12px;
+    min-height: 30px;
+    border-radius: 8px;
+    background: var(--ink);
+    color: var(--bg);
+    box-shadow: 0 4px 14px -4px rgba(0, 0, 0, 0.35);
+    font: 500 12.5px/1 var(--font-ui);
     pointer-events: auto;
   }
 
@@ -70,39 +70,43 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    color: var(--ink-2);
   }
 
   .btn-action {
     flex: none;
-    height: 32px;
-    padding: 0 12px;
-    border: 1px solid var(--hair-2);
-    border-radius: 9999px;
-    background: var(--hover);
-    color: var(--accent);
-    font: 600 12px/1 var(--font-ui);
+    padding: 8px 8px;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: inherit;
+    font: 700 12px/1 var(--font-ui);
+    text-decoration: underline;
+    text-underline-offset: 3px;
     cursor: pointer;
-    transition: background-color 0.12s, border-color 0.12s, color 0.12s;
     white-space: nowrap;
   }
 
   .btn-action:hover {
-    background: var(--sel);
-    border-color: var(--accent);
-    color: var(--accent);
+    background: color-mix(in oklab, var(--bg) 18%, transparent);
+  }
+
+  .btn-action:focus-visible {
+    outline: 2px solid var(--bg);
   }
 
   @media (pointer: coarse) {
+    .toast {
+      min-height: 36px;
+    }
+
     .btn-action {
-      height: 40px;
-      padding: 0 16px;
+      padding: 13px 10px;
     }
   }
 
   @media (max-width: 719px) {
     .toast-wrap {
-      bottom: calc(76px + env(safe-area-inset-bottom));
+      bottom: calc(60px + env(safe-area-inset-bottom));
     }
   }
 </style>
