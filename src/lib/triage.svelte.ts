@@ -3,6 +3,7 @@ import { isRecord, normalizeRepo } from './repo-schema'
 import {
   LANGUAGES,
   SORTS,
+  THEMES,
   TIMEFRAMES,
   type Entry,
   type Repo,
@@ -20,6 +21,7 @@ export interface Prefs {
 
 type Collection = 'saved' | 'seen'
 type Action = 'save' | 'dismiss'
+type UndoKind = Action | 'unsave' | 'restore'
 type Index = ReadonlyMap<string, Entry>
 
 export interface KeyValueAdapter {
@@ -28,9 +30,11 @@ export interface KeyValueAdapter {
 }
 
 interface UndoRecord {
-  kind: Action
+  kind: UndoKind
   repo: Repo
   at: number
+  // For save and dismiss: the entry that moved out of the other collection.
+  // For unsave and restore: the entry that was removed, and where it lived.
   previous: { collection: Collection; entry: Entry } | null
 }
 
@@ -39,7 +43,6 @@ export type ImportResult = { ok: true; saved: number; seen: number } | { ok: fal
 // Storage identifiers keep their original RepoRadar-era names on purpose: renaming them
 // would drop every saved and seen repo already in a browser. Only visible text says GitRadar.
 const PREFS_KEY = 'rr:prefs'
-const THEMES: readonly Theme[] = ['system', 'light', 'dark']
 const CHANNEL_NAME = 'repo-radar'
 const CHANGED = 'changed'
 const BACKUP_VERSION = 1
@@ -92,7 +95,11 @@ export function readPrefs(): Prefs {
       SORTS.map((item) => item.id),
       'trending',
     ),
-    theme: oneOf(raw.theme, THEMES, 'system'),
+    theme: oneOf(
+      raw.theme,
+      THEMES.map((item) => item.id),
+      'system',
+    ),
   }
 }
 
@@ -105,7 +112,14 @@ export function patchPrefs(patch: Partial<Prefs>): void {
 }
 
 function applyTheme(theme: Theme): void {
-  if (typeof document !== 'undefined') document.documentElement.dataset.theme = theme
+  if (typeof document === 'undefined') return
+  document.documentElement.dataset.theme = theme
+  // Named themes paint the browser chrome too; "system" restores the per-scheme defaults.
+  const bg = THEMES.find((item) => item.id === theme)?.swatch[0]
+  for (const meta of document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')) {
+    meta.dataset.base ??= meta.content
+    meta.content = theme === 'system' || !bg ? meta.dataset.base : bg
+  }
 }
 
 function normalizeEntries(value: unknown): Entry[] | null {
@@ -218,7 +232,7 @@ export class Triage {
     return this.#canUndo
   }
 
-  get lastAction(): { kind: Action; repo: Repo } | null {
+  get lastAction(): { kind: UndoKind; repo: Repo } | null {
     return this.#lastAction
   }
 
@@ -379,8 +393,16 @@ export class Triage {
 
   #remove(collection: Collection, name: string): void {
     const key = keyOf(name)
-    if (!this.#index(collection).has(key)) return
+    const entry = this.#index(collection).get(key)
+    if (!entry) return
     this.#assign(collection, withoutEntry(this.#index(collection), key))
+    const record: UndoRecord = {
+      kind: collection === 'saved' ? 'unsave' : 'restore',
+      repo: entry.repo,
+      at: Date.now(),
+      previous: { collection, entry },
+    }
+    this.#undo = [...this.#undo, record].slice(-UNDO_LIMIT)
     this.#commit()
   }
 
@@ -392,6 +414,10 @@ export class Triage {
 
   // Records whose effect was undone by other means (unsave, another tab) are skipped.
   #isCurrent(record: UndoRecord): boolean {
+    if (record.kind === 'unsave' || record.kind === 'restore') {
+      const key = keyOf(record.repo.full_name)
+      return !this.#saved.has(key) && !this.#seen.has(key)
+    }
     return this.#index(TARGET[record.kind]).get(keyOf(record.repo.full_name))?.at === record.at
   }
 
@@ -403,6 +429,14 @@ export class Triage {
     if (!record) return
 
     const key = keyOf(record.repo.full_name)
+    if (record.kind === 'unsave' || record.kind === 'restore') {
+      if (record.previous) {
+        const { collection, entry } = record.previous
+        this.#assign(collection, withEntry(this.#index(collection), key, entry))
+        this.#commit()
+      }
+      return
+    }
     const target = TARGET[record.kind]
     this.#assign(target, withoutEntry(this.#index(target), key))
     if (record.previous) {

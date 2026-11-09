@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
-/* Tokens: off-white and near-black, hairline rules, one accent. html[data-theme] is always
-   "system", "light" or "dark" (triage.theme and the pre-paint script). "system" and unset both
-   resolve through prefers-color-scheme, because the dark block excludes only data-theme="light". */
+/* Tokens: hairline rules, one accent. html[data-theme] is "system" or a named theme (see THEMES in
+   types.ts, triage.theme and the pre-paint script in index.html). "system" and unset both resolve
+   through prefers-color-scheme, because the dark block excludes only an explicit light-looking theme. */
 :root {
   color-scheme: light;
   --bg: #f6f5f1;
@@ -17,18 +17,25 @@
   --accent: #c2410c;
   --accent-ink: #ffffff;
   --accent-tint: #f6e3d7;
+  --accent-text: #9a3412;
+  --dismiss-tint: #e8e6de;
   --font-ui: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   --top-h: 0px;
+  --z-dock: 15;
+  --z-top: 20;
+  --z-pop: 40;
+  --z-toast: 50;
 }
 
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
+  :root[data-theme="system"],
+  :root:not([data-theme]) {
     color-scheme: dark;
     --bg: #0e0e0d;
     --panel: #131312;
-    --hover: #181816;
-    --sel: #151513;
+    --hover: #1c1b19;
+    --sel: #201f1c;
     --ink: #ecebe6;
     --ink-2: #b3b1a9;
     --ink-3: #8c8a82;
@@ -37,6 +44,8 @@
     --accent: #ff7a3d;
     --accent-ink: #140a05;
     --accent-tint: #2b1a10;
+    --accent-text: #ffa070;
+    --dismiss-tint: #22211e;
   }
 }
 
@@ -44,8 +53,8 @@
   color-scheme: dark;
   --bg: #0e0e0d;
   --panel: #131312;
-  --hover: #181816;
-  --sel: #151513;
+  --hover: #1c1b19;
+  --sel: #201f1c;
   --ink: #ecebe6;
   --ink-2: #b3b1a9;
   --ink-3: #8c8a82;
@@ -54,6 +63,80 @@
   --accent: #ff7a3d;
   --accent-ink: #140a05;
   --accent-tint: #2b1a10;
+  --accent-text: #ffa070;
+  --dismiss-tint: #22211e;
+}
+
+:root[data-theme="nord"] {
+  color-scheme: dark;
+  --bg: #2e3440;
+  --panel: #343b49;
+  --hover: #3b4252;
+  --sel: #434c5e;
+  --ink: #eceff4;
+  --ink-2: #d8dee9;
+  --ink-3: #a7b1c5;
+  --hair: #3b4252;
+  --hair-2: #4c566a;
+  --accent: #88c0d0;
+  --accent-ink: #2e3440;
+  --accent-tint: #34495a;
+  --accent-text: #8fd0e0;
+  --dismiss-tint: #3b4252;
+}
+
+:root[data-theme="dracula"] {
+  color-scheme: dark;
+  --bg: #282a36;
+  --panel: #2f3241;
+  --hover: #343746;
+  --sel: #3a3d4f;
+  --ink: #f8f8f2;
+  --ink-2: #cdd0e4;
+  --ink-3: #9ca3c6;
+  --hair: #343746;
+  --hair-2: #4a4e66;
+  --accent: #bd93f9;
+  --accent-ink: #1e1f29;
+  --accent-tint: #3a3350;
+  --accent-text: #cfb0ff;
+  --dismiss-tint: #343746;
+}
+
+:root[data-theme="solarized"] {
+  color-scheme: light;
+  --bg: #fdf6e3;
+  --panel: #f8f0da;
+  --hover: #eee8d5;
+  --sel: #fffdf5;
+  --ink: #073642;
+  --ink-2: #4a6169;
+  --ink-3: #5f757c;
+  --hair: #eee8d5;
+  --hair-2: #d3cbb3;
+  --accent: #cb4b16;
+  --accent-ink: #ffffff;
+  --accent-tint: #f6e0c8;
+  --accent-text: #a63a0f;
+  --dismiss-tint: #eee8d5;
+}
+
+:root[data-theme="rosepine"] {
+  color-scheme: dark;
+  --bg: #191724;
+  --panel: #1f1d2e;
+  --hover: #26233a;
+  --sel: #2a2740;
+  --ink: #e0def4;
+  --ink-2: #c0bdd8;
+  --ink-3: #9a96b4;
+  --hair: #26233a;
+  --hair-2: #403d52;
+  --accent: #ebbcba;
+  --accent-ink: #191724;
+  --accent-tint: #3a2d3a;
+  --accent-text: #f0c8c6;
+  --dismiss-tint: #26233a;
 }
 
 @layer base {
@@ -81,6 +164,11 @@
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* Modal open: the page behind it does not scroll. */
+html:has(dialog[open]) {
+  overflow: hidden;
 }
 
 /* Page column: the views share one width and leave room for the phone dock. */
@@ -168,4 +256,14 @@
 .seg button[aria-pressed="true"] {
   background: var(--ink);
   color: var(--bg);
+}
+
+@media (pointer: coarse) {
+  .seg button {
+    min-height: 40px;
+  }
+
+  .btn {
+    min-height: 40px;
+  }
 }

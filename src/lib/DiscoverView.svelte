@@ -7,7 +7,6 @@
 
   interface Props {
     selectedKey: string | null
-    expanded?: boolean
     onselect: (name: string) => void
     onsave: (repo: Repo) => void
     ondismiss: (repo: Repo) => void
@@ -114,11 +113,13 @@
           <span>{period.label}</span>
           <span>{period.repos.length}</span>
         </h2>
+        {#if period.repos.length === 0}
+          <p class="caught">All caught up for {windowLabel}.</p>
+        {/if}
         <ol class="lg-list">
           {#each period.repos as repo (repo.full_name)}
             <RepoRow
               {repo}
-              index={repo.rank}
               {gainMax}
               mode="discover"
               selected={selectedKey === repo.full_name}
@@ -160,6 +161,14 @@
 
   .sentinel {
     height: 1px;
+  }
+
+  .caught {
+    margin: 0;
+    padding: 18px 16px 22px;
+    border-bottom: 1px solid var(--hair);
+    color: var(--ink-2);
+    font-size: 13.5px;
   }
 
   /* Hairline sweep under the top bar while a fetch runs; the list stays on screen meanwhile. */
@@ -224,7 +233,7 @@
   }
 
   .sk {
-    height: 58px;
+    height: 96px;
     border-bottom: 1px solid var(--hair);
     background: var(--panel);
     animation: pulse 1.4s ease-in-out infinite;

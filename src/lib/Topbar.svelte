@@ -119,7 +119,7 @@
   .top {
     position: sticky;
     top: 0;
-    z-index: 20;
+    z-index: var(--z-top);
     background: var(--bg);
     border-bottom: 1px solid var(--hair);
   }

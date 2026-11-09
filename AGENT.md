@@ -9,7 +9,8 @@
 - `client.ts`: fetches and caches one archive per (timeframe, language).
 - `feed.svelte.ts`: selected timeframe/language/sort, deduped and sorted `periods`, progress counts.
 - `triage.svelte.ts`: saved and seen entries (IndexedDB + BroadcastChannel), undo, JSON export/import, theme.
-- `format.ts`, `collection.ts`: pure helpers.
+- `format.ts`, `collection.ts`: pure helpers (`collection.ts` also holds the Saved/Seen language and period filters).
+- `toast.svelte.ts`: the one shared toast; `motion.ts`: `reduced()` for JS-driven animation.
 - UI: `App.svelte` (shell and keys), `Topbar`, `BottomDock`, `DiscoverView`, `CollectionView` (Saved and Seen), `SettingsView`, `RepoRow` (single row for every list), `Select` (the only dropdown), `ConfirmDialog`, `Toast`, `Icon`.
 
 ## Rules
@@ -18,6 +19,7 @@
 - The timeframe is a segmented control at 720px and wider and a `Select` below that; both exist in the markup and CSS shows one.
 - Options may carry a `short` label for phone-width triggers; the popup always shows the full label.
 - No virtualization library: rows use `content-visibility: auto` and further periods load through an `IntersectionObserver` sentinel.
-- `data-theme` on `<html>` is `system`, `light` or `dark`; `index.html` sets it before paint.
+- `data-theme` on `<html>` is `system` or a named theme (`THEMES` in `types.ts`: light, dark, nord, dracula, solarized, rosepine); `index.html` sets it before paint, so a new theme needs its token block in `app.css`, its entry in `THEMES` and its id in the `index.html` list.
+- `RepoRow` swipe writes transform/CSS vars straight to the DOM in a `requestAnimationFrame`; never route pointer-move through `$state`. Commit is distance >= clamp(56, 20% width, 88) or a flick.
 - Reassign `$state` Maps and Sets; mutating them in place does not notify `$derived`.
 - Verify with `bun run verify` (type check, unit tests, build).

@@ -6,11 +6,14 @@
   import {
     COLLECTION_SORTS,
     ROWS_PER_PAGE,
-    filterEntries,
-    sortEntries,
+    applyFilters,
+    isFiltered,
+    languageOptions,
+    sourceOptions,
     stepIndex,
     type CollectionSort,
   } from './collection'
+  import { toast } from './toast.svelte'
   import { triage } from './triage.svelte'
   import type { Repo } from './types'
 
@@ -43,18 +46,29 @@
 
   let query = $state('')
   let sort = $state<CollectionSort>('recent')
+  let languagePick = $state('all')
+  let sourcePick = $state('all')
   let limit = $state(ROWS_PER_PAGE)
   let selectedKey = $state<string | null>(null)
-  let expandedKey = $state<string | null>(null)
   let confirmOpen = $state(false)
   let sentinel: HTMLElement | undefined = $state()
 
-  const visible = $derived(filterEntries(sortEntries(entries, sort), query))
+  const languages = $derived(languageOptions(entries))
+  const sources = $derived(sourceOptions(entries))
+  // A pick whose repos are all gone (cleared, restored) falls back to "all" instead of an empty list.
+  const language = $derived(languages.some((o) => o.id === languagePick) ? languagePick : 'all')
+  const source = $derived(sources.some((o) => o.id === sourcePick) ? sourcePick : 'all')
+  const filter = $derived({ query, language, source, sort })
+  const filtered = $derived(isFiltered(filter))
+  const visible = $derived(applyFilters(entries, filter))
   const shown = $derived(visible.slice(0, limit))
   const selectedIndex = $derived(visible.findIndex((entry) => entry.repo.full_name === selectedKey))
-  const gainMax = $derived(visible.reduce((max, entry) => Math.max(max, entry.repo.stars_gained), 1))
+  // Gains from different timeframes are not comparable, so the heat tint needs a single source.
+  const gainMax = $derived(
+    source === 'all' ? undefined : visible.reduce((max, entry) => Math.max(max, entry.repo.stars_gained), 1),
+  )
   const countLabel = $derived(
-    query.trim()
+    filtered
       ? `${visible.length} of ${entries.length}`
       : `${entries.length} ${entries.length === 1 ? 'repo' : 'repos'}`,
   )
@@ -74,27 +88,34 @@
   })
 
   function select(name: string) {
-    selectedKey = name
-    expandedKey = expandedKey === name ? null : name
+    selectedKey = selectedKey === name ? null : name
   }
 
   function release() {
     selectedKey = null
-    expandedKey = null
+  }
+
+  function clearFilters() {
+    query = ''
+    languagePick = 'all'
+    sourcePick = 'all'
   }
 
   function unsave(name: string) {
     triage.unsave(name)
+    toast.show(`Removed ${name} from Saved`)
     release()
   }
 
   function restore(name: string) {
     triage.restore(name)
+    toast.show(`Restored ${name} to Discover`)
     release()
   }
 
   function save(repo: Repo) {
     triage.save(repo)
+    toast.show(`Saved ${repo.full_name}`)
     release()
   }
 
@@ -111,7 +132,6 @@
     const name = visible[next].repo.full_name
     limit = Math.max(limit, next + 1)
     selectedKey = name
-    expandedKey = name
     await tick()
     document.querySelector(`[data-repo-key="${CSS.escape(name)}"]`)?.scrollIntoView({ block: 'nearest' })
   }
@@ -130,7 +150,7 @@
       return
     }
     if (event.key === 'Escape') {
-      expandedKey = null
+      selectedKey = null
       return
     }
     const selected = selectedIndex >= 0 ? visible[selectedIndex] : undefined
@@ -172,6 +192,26 @@
             </button>
           {/if}
         </div>
+        {#if languages.length > 2}
+          <div class="slot">
+            <Select
+              value={language}
+              options={languages}
+              onchange={(id) => (languagePick = id)}
+              ariaLabel="Filter {copy.noun} repos by language"
+            />
+          </div>
+        {/if}
+        {#if sources.length > 1}
+          <div class="slot">
+            <Select
+              value={source}
+              options={sources}
+              onchange={(id) => (sourcePick = id)}
+              ariaLabel="Filter {copy.noun} repos by period"
+            />
+          </div>
+        {/if}
         <div class="slot">
           <Select
             value={sort}
@@ -193,7 +233,8 @@
   {:else if !visible.length}
     <div class="empty">
       <h2>No matches</h2>
-      <p>Nothing {copy.noun} matches “{query.trim()}”.</p>
+      <p>Nothing {copy.noun} matches the current search and filters.</p>
+      <button type="button" class="btn" onclick={clearFilters}>Clear filters</button>
     </div>
   {:else}
     <div class="lg">
@@ -229,11 +270,6 @@
 />
 
 <style>
-  .view {
-    max-width: 1240px;
-    margin: 0 auto;
-    padding: 0 20px 56px;
-  }
   .head {
     display: grid;
     gap: 14px;
@@ -314,6 +350,10 @@
     display: flex;
     flex: 0 1 auto;
     min-width: 0;
+    width: auto;
+  }
+  .slot :global(.sel) {
+    width: auto;
   }
   button:focus-visible,
   input:focus-visible {
@@ -333,7 +373,7 @@
     font-weight: 600;
   }
   .empty p {
-    margin: 0;
+    margin: 0 0 16px;
     color: var(--ink-2);
   }
   @media (pointer: coarse) {
@@ -346,9 +386,6 @@
     }
   }
   @media (max-width: 719px) {
-    .view {
-      padding: 0 0 calc(88px + env(safe-area-inset-bottom));
-    }
     .head {
       padding: 18px 16px 12px;
     }
@@ -357,7 +394,10 @@
       max-width: none;
     }
     .slot {
-      flex: 1 1 auto;
+      flex: 1 1 0;
+    }
+    .slot :global(.sel) {
+      width: 100%;
     }
     .empty {
       padding: 44px 16px;

@@ -7,13 +7,12 @@
   import BottomDock from './lib/BottomDock.svelte'
   import DiscoverView from './lib/DiscoverView.svelte'
   import Toast from './lib/Toast.svelte'
+  import { toast } from './lib/toast.svelte'
 
   let view = $state<View>('discover')
   // The selected row is what S, D, O act on.
   let selectedKey = $state<string | null>(null)
   let topHeight = $state(0)
-  let toast = $state<{ id: number; message: string } | null>(null)
-  let toastSeq = 0
 
   // Walks the rendered order, so keyboard moves cross period boundaries.
   const flat = $derived(feed.periods.flatMap((p) => p.repos))
@@ -42,16 +41,14 @@
     if (kind === 'save') triage.save(repo)
     else triage.dismiss(repo)
     selectedKey = after?.full_name ?? null
-    toast = { id: ++toastSeq, message: `${kind === 'save' ? 'Saved' : 'Dismissed'} ${repo.full_name}` }
+    toast.show(`${kind === 'save' ? 'Saved' : 'Dismissed'} ${repo.full_name}`)
   }
 
   function undoLast() {
     const last = triage.lastAction?.repo
     triage.undo()
-    toast = null
-    if (last) {
-      selectedKey = last.full_name
-    }
+    toast.clear()
+    if (last && view === 'discover') selectedKey = last.full_name
   }
 
   function onkeydown(e: KeyboardEvent) {
@@ -109,9 +106,9 @@
 
   <BottomDock {view} onview={setView} />
 
-  {#if toast}
-    {#key toast.id}
-      <Toast message={toast.message} actionLabel="Undo" onaction={undoLast} ondismiss={() => (toast = null)} />
+  {#if toast.current}
+    {#key toast.current.id}
+      <Toast message={toast.current.message} actionLabel="Undo" onaction={undoLast} ondismiss={() => toast.clear()} />
     {/key}
   {/if}
 </div>

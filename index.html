@@ -8,7 +8,8 @@
       // Anything unreadable falls back to "system", which app.css resolves through prefers-color-scheme.
       try {
         var theme = JSON.parse(localStorage.getItem('rr:prefs') || '{}').theme
-        document.documentElement.dataset.theme = theme === 'light' || theme === 'dark' ? theme : 'system'
+        var known = ['light', 'dark', 'nord', 'dracula', 'solarized', 'rosepine']
+        document.documentElement.dataset.theme = known.indexOf(theme) >= 0 ? theme : 'system'
       } catch (e) {
         document.documentElement.dataset.theme = 'system'
       }

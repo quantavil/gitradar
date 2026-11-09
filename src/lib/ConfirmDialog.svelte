@@ -44,8 +44,13 @@
     if (pressedOnBackdrop && event.target === dialog) oncancel()
   }
 
+  // Chrome's close watcher can close the dialog despite the cancelled Esc (second press, Android
+  // back). The parent must hear about it, or `open` stays true and the dialog can never reopen.
   function onclosed() {
-    opener?.focus()
+    if (open) oncancel()
+    // The opener may be gone (e.g. "Clear all" disappears once the list is empty).
+    if (opener?.isConnected) opener.focus()
+    else document.querySelector<HTMLElement>('main h1')?.focus()
     opener = null
   }
 </script>
@@ -64,7 +69,8 @@
     <h2 id={titleId}>{title}</h2>
     <p id={bodyId}>{body}</p>
     <div class="actions">
-      <button type="button" class="btn" onclick={() => oncancel()}>Cancel</button>
+      <!-- svelte-ignore a11y_autofocus -->
+      <button type="button" class="btn" autofocus onclick={() => oncancel()}>Cancel</button>
       <button type="button" class="btn confirm" class:danger onclick={() => onconfirm()}>{confirmLabel}</button>
     </div>
   </div>
@@ -79,10 +85,28 @@
     border-radius: 12px;
     background: var(--panel);
     color: var(--ink);
-    box-shadow: 0 24px 60px rgb(0 0 0 / 0.28);
+    box-shadow: 0 24px 60px rgb(0 0 0 / 0.32);
+    overscroll-behavior: contain;
+  }
+  .dialog[open] {
+    animation: dialog-in 0.16s ease-out;
+  }
+  .dialog[open]::backdrop {
+    animation: fade-in 0.16s ease-out;
   }
   .dialog::backdrop {
-    background: rgb(0 0 0 / 0.5);
+    background: rgb(0 0 0 / 0.55);
+  }
+  @keyframes dialog-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px) scale(0.98);
+    }
+  }
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
   }
   .panel {
     padding: 20px 20px 16px;
@@ -105,24 +129,6 @@
     justify-content: flex-end;
     gap: 8px;
   }
-  .btn {
-    height: 36px;
-    padding: 0 14px;
-    border: 1px solid var(--hair-2);
-    border-radius: 8px;
-    background: var(--panel);
-    color: var(--ink);
-    font: 500 14px/1 var(--font-ui);
-    white-space: nowrap;
-    cursor: pointer;
-  }
-  .btn:hover {
-    background: var(--hover);
-  }
-  .btn:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-  }
   .confirm {
     background: var(--ink);
     border-color: var(--ink);
@@ -140,10 +146,30 @@
   .confirm.danger:hover {
     filter: brightness(1.06);
   }
-  @media (pointer: coarse) {
-    .btn {
+  /* Phones get a bottom sheet with full-width, thumb-sized buttons. */
+  @media (max-width: 719px) {
+    .dialog,
+    .dialog[open] {
+      width: 100%;
+      margin: auto 0 0;
+      border-width: 1px 0 0;
+      border-radius: 16px 16px 0 0;
+      animation-name: sheet-in;
+    }
+    .panel {
+      padding-bottom: calc(16px + env(safe-area-inset-bottom));
+    }
+    .actions {
+      flex-direction: column-reverse;
+    }
+    .actions :global(.btn) {
+      width: 100%;
       min-height: 44px;
-      height: auto;
+    }
+  }
+  @keyframes sheet-in {
+    from {
+      transform: translateY(100%);
     }
   }
 </style>

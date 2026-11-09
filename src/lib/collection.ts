@@ -1,4 +1,11 @@
-import type { Entry } from './types'
+import type { Entry, Timeframe } from './types'
+import { TIMEFRAMES } from './types'
+
+export interface FilterOption {
+  id: string
+  label: string
+  short?: string
+}
 
 export type CollectionSort = 'recent' | 'stars' | 'gained' | 'name'
 
@@ -40,4 +47,55 @@ export function stepIndex(length: number, current: number, delta: number): numbe
   if (length === 0) return -1
   if (current < 0) return 0
   return Math.min(length - 1, Math.max(0, current + delta))
+}
+
+/** The archive a stored repo came from, read from the shape of its period key. */
+export function timeframeOf(periodKey: string): Timeframe | null {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(periodKey)) return 'daily'
+  if (/^\d{4}-W\d{2}$/.test(periodKey)) return 'weekly'
+  if (/^\d{4}-M\d{2}$/.test(periodKey)) return 'monthly'
+  if (/^\d{4}$/.test(periodKey)) return 'yearly'
+  return null
+}
+
+export const languageKey = (language: string): string => language.trim().toLowerCase() || 'none'
+
+/** "All" plus every language present, most common first, with counts in the label. */
+export function languageOptions(entries: Entry[]): FilterOption[] {
+  const counts = new Map<string, { label: string; count: number }>()
+  for (const { repo } of entries) {
+    const key = languageKey(repo.language)
+    const found = counts.get(key)
+    if (found) found.count += 1
+    else counts.set(key, { label: repo.language.trim() || 'Other', count: 1 })
+  }
+  const options = [...counts.entries()]
+    .sort((a, b) => b[1].count - a[1].count || a[1].label.localeCompare(b[1].label, 'en'))
+    .map(([id, { label, count }]) => ({ id, label: `${label} · ${count}`, short: label }))
+  return [{ id: 'all', label: 'All languages', short: 'All' }, ...options]
+}
+
+/** "All" plus the timeframes the stored repos came from; just "All" when there is no choice to make. */
+export function sourceOptions(entries: Entry[]): FilterOption[] {
+  const present = new Set(entries.map(({ repo }) => timeframeOf(repo.period_key)))
+  const options = TIMEFRAMES.filter((t) => present.has(t.id)).map((t) => ({ id: t.id, label: t.label }))
+  return options.length < 2 ? [{ id: 'all', label: 'All periods', short: 'All' }] : [{ id: 'all', label: 'All periods', short: 'All' }, ...options]
+}
+
+export interface CollectionFilter {
+  query: string
+  language: string
+  source: string
+  sort: CollectionSort
+}
+
+export const isFiltered = (f: CollectionFilter): boolean =>
+  f.query.trim() !== '' || f.language !== 'all' || f.source !== 'all'
+
+/** Sorts, then narrows by language, source and search text. */
+export function applyFilters(entries: Entry[], f: CollectionFilter): Entry[] {
+  let list = sortEntries(entries, f.sort)
+  if (f.language !== 'all') list = list.filter(({ repo }) => languageKey(repo.language) === f.language)
+  if (f.source !== 'all') list = list.filter(({ repo }) => timeframeOf(repo.period_key) === f.source)
+  return filterEntries(list, f.query)
 }

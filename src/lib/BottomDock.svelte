@@ -30,7 +30,7 @@
     <button type="button" aria-current={view === tab.id ? 'page' : undefined} onclick={() => onview(tab.id)}>
       <Icon name={tab.icon} size={20} />
       <span>{tab.label}</span>
-      {#if n !== null}<span class="cnt">{n}</span>{/if}
+      {#if n}<span class="cnt">{n > 99 ? '99+' : n}</span>{/if}
     </button>
   {/each}
 </nav>
@@ -44,7 +44,7 @@
     .dock {
       position: fixed;
       inset: auto 0 0;
-      z-index: 30;
+      z-index: var(--z-dock);
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
       padding-bottom: env(safe-area-inset-bottom);
@@ -84,11 +84,12 @@
       top: 6px;
       left: calc(50% + 6px);
       min-width: 17px;
-      padding: 0 3px;
-      background: var(--bg);
-      font: 500 10px/15px var(--font-mono);
+      padding: 0 5px;
+      border-radius: 999px;
+      background: var(--accent-tint);
+      font: 600 10px/17px var(--font-mono);
       text-align: center;
-      color: var(--ink-3);
+      color: var(--accent-text);
     }
   }
 </style>

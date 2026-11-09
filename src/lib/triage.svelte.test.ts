@@ -158,12 +158,29 @@ describe('Triage', () => {
     const triage = await readyTriage()
     triage.dismiss(repo('org/alpha'))
     triage.dismiss(repo('org/beta'))
-    triage.restore('org/beta')
+    triage.clearSeen()
 
     triage.undo()
     expect(triage.isSeen('org/alpha')).toBe(false)
     expect(triage.isSeen('org/beta')).toBe(false)
     expect(triage.canUndo).toBe(false)
+  })
+
+  it('undoes an unsave and a restore by putting the entry back', async () => {
+    const triage = await readyTriage()
+    triage.save(repo('org/alpha'))
+    triage.dismiss(repo('org/beta'))
+
+    triage.restore('org/beta')
+    expect(triage.isSeen('org/beta')).toBe(false)
+    expect(triage.lastAction).toEqual({ kind: 'restore', repo: repo('org/beta') })
+    triage.undo()
+    expect(triage.isSeen('org/beta')).toBe(true)
+
+    triage.unsave('org/alpha')
+    expect(triage.isSaved('org/alpha')).toBe(false)
+    triage.undo()
+    expect(triage.isSaved('org/alpha')).toBe(true)
   })
 
   it('clears saved and seen collections', async () => {
@@ -293,7 +310,7 @@ describe('Triage', () => {
 
   it('reads the theme from preferences and applies it to the document root', () => {
     const root = { dataset: {} as Record<string, string> }
-    vi.stubGlobal('document', { documentElement: root })
+    vi.stubGlobal('document', { documentElement: root, querySelectorAll: () => [] })
     vi.stubGlobal('localStorage', fakeLocalStorage({ [PREFS_KEY]: JSON.stringify({ theme: 'dark' }) }))
 
     const triage = new Triage(createMemoryAdapter(), null)
@@ -303,6 +320,10 @@ describe('Triage', () => {
     triage.theme = 'light'
     expect(root.dataset.theme).toBe('light')
     expect(readPrefs().theme).toBe('light')
+
+    triage.theme = 'nord'
+    expect(root.dataset.theme).toBe('nord')
+    expect(readPrefs().theme).toBe('nord')
   })
 })
 

@@ -38,15 +38,15 @@
 
   $effect(() => () => clearTimeout(bufferTimer))
 
-  // A click anywhere outside the control closes the popup. Clicks inside it, including on
+  // A press anywhere outside the control closes the popup. Presses inside it, including on
   // the trigger, are ignored here because the trigger already toggles on its own click.
   $effect(() => {
     if (!open) return
-    const onoutside = (event: MouseEvent) => {
-      if (root && !root.contains(event.target as Node)) open = false
+    const onoutside = (event: PointerEvent) => {
+      if (root && !root.contains(event.target as Node)) collapse()
     }
-    window.addEventListener('click', onoutside)
-    return () => window.removeEventListener('click', onoutside)
+    window.addEventListener('pointerdown', onoutside, true)
+    return () => window.removeEventListener('pointerdown', onoutside, true)
   })
 
   function reveal(index: number) {
@@ -147,8 +147,12 @@
   </button>
 
   {#if open}
+    <!-- Only visible as a bottom sheet on phones; a tap on it dismisses the sheet. -->
+    <div class="scrim" aria-hidden="true" onclick={collapse}></div>
     <ul class="pop" bind:this={list} id={listId} role="listbox" aria-label={`${ariaLabel} options`}>
       {#each options as option, index (option.id)}
+        <!-- Focus stays on the trigger, which handles every key (combobox pattern). -->
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
         <li
           id={`${uid}-opt-${option.id}`}
           class="opt"
@@ -156,12 +160,6 @@
           role="option"
           aria-selected={option.id === value}
           onclick={() => choose(index)}
-          onkeydown={(event) => {
-            if (event.key !== 'Enter' && event.key !== ' ') return
-            event.preventDefault()
-            event.stopPropagation()
-            choose(index)
-          }}
           onmouseenter={() => (active = index)}
         >
           <span>{option.label}</span>
@@ -227,10 +225,13 @@
   .pop {
     position: absolute;
     top: calc(100% + 4px);
-    z-index: 30;
+    z-index: var(--z-pop);
     min-width: 100%;
     max-width: min(280px, calc(100vw - 24px));
-    max-height: 264px;
+    max-height: min(264px, calc(100dvh - var(--top-h) - 96px));
+    overscroll-behavior: contain;
+    transform-origin: top center;
+    animation: pop-in 0.12s ease-out;
     margin: 0;
     padding: 4px;
     overflow-y: auto;
@@ -239,6 +240,17 @@
     background: var(--panel);
     box-shadow: 0 10px 24px rgb(0 0 0 / 0.14);
     list-style: none;
+  }
+
+  @keyframes pop-in {
+    from {
+      opacity: 0;
+      transform: translateY(-4px) scale(0.98);
+    }
+  }
+
+  .scrim {
+    display: none;
   }
 
   .sel[data-align="start"] .pop {
@@ -298,6 +310,51 @@
   @media (pointer: coarse) {
     .opt {
       min-height: 44px;
+    }
+  }
+
+  /* On a phone the list becomes a bottom sheet: thumb-reachable, never clipped by the viewport. */
+  @media (max-width: 719px) and (pointer: coarse) {
+    .scrim {
+      position: fixed;
+      inset: 0;
+      z-index: var(--z-pop);
+      display: block;
+      background: rgb(0 0 0 / 0.4);
+      touch-action: none;
+      animation: fade-in 0.15s ease-out;
+    }
+
+    .pop,
+    .sel[data-align="start"] .pop,
+    .sel[data-align="end"] .pop {
+      position: fixed;
+      inset: auto 0 0 0;
+      z-index: calc(var(--z-pop) + 1);
+      max-width: none;
+      max-height: 60dvh;
+      padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+      border-width: 1px 0 0;
+      border-radius: 16px 16px 0 0;
+      box-shadow: 0 -12px 32px rgb(0 0 0 / 0.25);
+      animation: sheet-in 0.2s cubic-bezier(0.2, 0.7, 0.3, 1);
+    }
+
+    .opt {
+      padding: 0 12px;
+      font-size: 15px;
+    }
+  }
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+
+  @keyframes sheet-in {
+    from {
+      transform: translateY(100%);
     }
   }
 </style>

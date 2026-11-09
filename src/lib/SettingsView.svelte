@@ -1,13 +1,7 @@
 <script lang="ts">
   import ConfirmDialog from './ConfirmDialog.svelte'
   import { triage } from './triage.svelte'
-  import type { Theme } from './types'
-
-  const THEMES: { id: Theme; label: string }[] = [
-    { id: 'system', label: 'System' },
-    { id: 'light', label: 'Light' },
-    { id: 'dark', label: 'Dark' },
-  ]
+  import { THEMES } from './types'
 
   let message = $state<{ ok: boolean; text: string } | null>(null)
   let pendingImport = $state<{ name: string; text: string } | null>(null)
@@ -66,15 +60,27 @@
     <h1>Settings</h1>
   </header>
 
-  <section class="set" aria-labelledby="theme-title">
+  <section class="set wide" aria-labelledby="theme-title">
     <div>
       <h2 id="theme-title">Theme</h2>
-      <p>System follows your device. Light and dark stay fixed.</p>
+      <p>System follows your device. The others stay fixed.</p>
     </div>
-    <div class="seg" role="group" aria-label="Theme">
+    <div class="themes" role="group" aria-label="Theme">
       {#each THEMES as theme (theme.id)}
-        <button type="button" aria-pressed={triage.theme === theme.id} onclick={() => (triage.theme = theme.id)}>
-          {theme.label}
+        <button
+          type="button"
+          class="theme"
+          aria-pressed={triage.theme === theme.id}
+          onclick={() => (triage.theme = theme.id)}
+        >
+          <span class="swatch" style:background={theme.swatch[0]} style:color={theme.swatch[1]}>
+            {#if theme.id === 'system'}
+              <span class="half"></span>
+            {/if}
+            <span class="aa">Aa</span>
+            <span class="pip" style:background={theme.swatch[2]}></span>
+          </span>
+          <span class="tl">{theme.label}</span>
         </button>
       {/each}
     </div>
@@ -153,11 +159,6 @@
 />
 
 <style>
-  .view {
-    max-width: 1240px;
-    margin: 0 auto;
-    padding: 0 20px 56px;
-  }
   .head {
     padding: 22px 12px 14px;
   }
@@ -194,7 +195,72 @@
   .set a:hover {
     text-decoration-color: var(--accent);
   }
-  /* The segmented control itself is shared from app.css. */
+  .set.wide .themes {
+    grid-column: 1 / -1;
+  }
+  .themes {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    gap: 10px;
+  }
+  .theme {
+    display: grid;
+    gap: 6px;
+    padding: 6px;
+    border: 1px solid var(--hair-2);
+    border-radius: 10px;
+    background: var(--panel);
+    color: var(--ink-2);
+    font: 500 12.5px/1 var(--font-ui);
+    text-align: left;
+    cursor: pointer;
+  }
+  .theme:hover {
+    background: var(--hover);
+  }
+  .theme[aria-pressed="true"] {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+    color: var(--ink);
+  }
+  .theme:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .swatch {
+    position: relative;
+    display: flex;
+    align-items: center;
+    height: 44px;
+    padding: 0 10px;
+    overflow: hidden;
+    border: 1px solid rgb(127 127 127 / 0.25);
+    border-radius: 6px;
+    font: 700 15px/1 var(--font-ui);
+  }
+  /* "System" shows the dark half it may resolve to. */
+  .half {
+    position: absolute;
+    inset: 0 0 0 50%;
+    background: #0e0e0d;
+  }
+  .aa {
+    position: relative;
+  }
+  .swatch:has(.half) .aa {
+    mix-blend-mode: difference;
+    color: #fff;
+  }
+  .pip {
+    position: relative;
+    margin-left: auto;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+  }
+  .tl {
+    padding: 0 2px 2px;
+  }
   .stack {
     display: grid;
     gap: 10px;
@@ -218,7 +284,6 @@
     white-space: nowrap;
   }
   .file:focus-within,
-  .seg button:focus-visible,
   .btn:focus-visible,
   .set a:focus-visible {
     outline: 2px solid var(--accent);
@@ -241,7 +306,6 @@
     font-size: 12.5px;
   }
   @media (pointer: coarse) {
-    .seg button,
     .btn {
       height: 44px;
     }
@@ -251,21 +315,12 @@
     }
   }
   @media (max-width: 719px) {
-    .view {
-      padding: 0 0 calc(88px + env(safe-area-inset-bottom));
-    }
     .head {
       padding: 18px 16px 12px;
     }
     .set {
       grid-template-columns: minmax(0, 1fr);
       padding: 20px 16px;
-    }
-    .seg {
-      display: flex;
-    }
-    .seg button {
-      flex: 1;
     }
   }
 </style>

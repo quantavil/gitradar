@@ -42,7 +42,24 @@ export const SORTS: { id: SortKey; label: string; short?: string }[] = [
 ]
 
 export type View = 'discover' | 'saved' | 'seen' | 'settings'
-export type Theme = 'system' | 'light' | 'dark'
+export type Theme = 'system' | 'light' | 'dark' | 'nord' | 'dracula' | 'solarized' | 'rosepine'
+
+export interface ThemeMeta {
+  id: Theme
+  label: string
+  /** Page background, text and accent colours for the Settings swatch and the browser chrome. */
+  swatch: [bg: string, ink: string, accent: string]
+}
+
+export const THEMES: ThemeMeta[] = [
+  { id: 'system', label: 'System', swatch: ['#f6f5f1', '#161614', '#c2410c'] },
+  { id: 'light', label: 'Light', swatch: ['#f6f5f1', '#161614', '#c2410c'] },
+  { id: 'dark', label: 'Dark', swatch: ['#0e0e0d', '#ecebe6', '#ff7a3d'] },
+  { id: 'nord', label: 'Nord', swatch: ['#2e3440', '#eceff4', '#88c0d0'] },
+  { id: 'dracula', label: 'Dracula', swatch: ['#282a36', '#f8f8f2', '#bd93f9'] },
+  { id: 'solarized', label: 'Solarized', swatch: ['#fdf6e3', '#073642', '#cb4b16'] },
+  { id: 'rosepine', label: 'Rosé Pine', swatch: ['#191724', '#e0def4', '#ebbcba'] },
+]
 
 export interface Repo {
   period_key: string

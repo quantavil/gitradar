@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { filterEntries, sortEntries, stepIndex } from './collection'
+import {
+  applyFilters,
+  filterEntries,
+  isFiltered,
+  languageKey,
+  languageOptions,
+  sortEntries,
+  sourceOptions,
+  stepIndex,
+  timeframeOf,
+} from './collection'
 import type { Entry, Repo } from './types'
 
 function entry(overrides: Partial<Repo> & Pick<Repo, 'full_name'>, at: number): Entry {
@@ -100,5 +110,47 @@ describe('stepIndex', () => {
 
   it('returns -1 for an empty list', () => {
     expect(stepIndex(0, -1, 1)).toBe(-1)
+  })
+})
+
+describe('timeframeOf', () => {
+  it('reads the archive from the period key', () => {
+    expect(timeframeOf('2026-10-18')).toBe('daily')
+    expect(timeframeOf('2026-W42')).toBe('weekly')
+    expect(timeframeOf('2026-M10')).toBe('monthly')
+    expect(timeframeOf('2026')).toBe('yearly')
+    expect(timeframeOf('nope')).toBeNull()
+  })
+})
+
+describe('language and source filters', () => {
+  const entries = [
+    entry({ full_name: 'a/one', language: 'Rust', period_key: '2026-10-18' }, 3),
+    entry({ full_name: 'a/two', language: 'rust', period_key: '2026-W42' }, 2),
+    entry({ full_name: 'a/three', language: 'Go', period_key: '2026-10-17' }, 1),
+    entry({ full_name: 'a/four', language: '', period_key: '' }, 0),
+  ]
+
+  it('builds language options by count and maps empty to none', () => {
+    expect(languageKey('  ')).toBe('none')
+    const options = languageOptions(entries)
+    expect(options.map((o) => o.id)).toEqual(['all', 'rust', 'go', 'none'])
+    expect(options[1].label).toBe('Rust · 2')
+    expect(options[3].short).toBe('Other')
+  })
+
+  it('offers sources only when there is a choice', () => {
+    expect(sourceOptions(entries).map((o) => o.id)).toEqual(['all', 'daily', 'weekly'])
+    expect(sourceOptions(entries.slice(0, 1)).map((o) => o.id)).toEqual(['all'])
+  })
+
+  it('applies sort, language, source and query together', () => {
+    const base = { query: '', language: 'all', source: 'all', sort: 'recent' as const }
+    expect(isFiltered(base)).toBe(false)
+    expect(names(applyFilters(entries, base))).toEqual(['a/one', 'a/two', 'a/three', 'a/four'])
+    expect(names(applyFilters(entries, { ...base, language: 'rust' }))).toEqual(['a/one', 'a/two'])
+    expect(names(applyFilters(entries, { ...base, language: 'rust', source: 'weekly' }))).toEqual(['a/two'])
+    expect(names(applyFilters(entries, { ...base, query: 'three' }))).toEqual(['a/three'])
+    expect(isFiltered({ ...base, source: 'daily' })).toBe(true)
   })
 })
