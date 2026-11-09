@@ -42,7 +42,7 @@
     TIMEFRAMES[(TIMEFRAMES.findIndex((t) => t.id === feed.timeframe) + 1) % TIMEFRAMES.length],
   )
 
-  // The boundary is the bottom edge of the sticky header: anything above it has been read.
+  // The boundary is the bottom edge of the sticky header: rows above it have been read.
   function measureRead() {
     const header = document.querySelector<HTMLElement>('.period-label')
     const line = header ? header.getBoundingClientRect().bottom : 0
@@ -53,6 +53,8 @@
         const row = document.getElementById(`repo-${repo.full_name}`)
         if (row && row.getBoundingClientRect().bottom <= line + 1) names.push(repo.full_name)
       }
+      // One card of buffer: the row nearest the boundary stays, so a quick scroll back never loses its place.
+      names.pop()
       if (names.length > 0) next[period.key] = names
     }
     const same =

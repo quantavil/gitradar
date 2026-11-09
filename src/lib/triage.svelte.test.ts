@@ -92,7 +92,7 @@ describe('Triage', () => {
     expect(triage.saved[0].at).toBe(T0)
     triage.undo()
     expect(triage.isSaved('org/alpha')).toBe(false)
-    expect(triage.canUndo).toBe(false)
+    expect(triage.lastAction).toBeNull()
   })
 
   it('unsave and restore remove repos from their collection', async () => {
@@ -162,7 +162,7 @@ describe('Triage', () => {
       'org/repo-1',
       'org/repo-0',
     ])
-    expect(triage.canUndo).toBe(false)
+    expect(triage.lastAction).toBeNull()
   })
 
   it('skips undo records whose effect was already reversed by another action', async () => {
@@ -174,7 +174,7 @@ describe('Triage', () => {
     triage.undo()
     expect(triage.isSeen('org/alpha')).toBe(false)
     expect(triage.isSeen('org/beta')).toBe(false)
-    expect(triage.canUndo).toBe(false)
+    expect(triage.lastAction).toBeNull()
   })
 
   it('undoes an unsave and a restore by putting the entry back', async () => {
@@ -279,7 +279,7 @@ describe('Triage', () => {
     expect(target.isSaved('org/previous')).toBe(false)
     expect(target.isSaved('org/alpha')).toBe(true)
     expect(target.isSeen('org/beta')).toBe(true)
-    expect(target.canUndo).toBe(false)
+    expect(target.lastAction).toBeNull()
   })
 
   it('drops invalid entries and keeps a repo in saved when the backup lists it twice', async () => {

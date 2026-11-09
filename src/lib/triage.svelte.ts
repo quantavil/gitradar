@@ -195,7 +195,6 @@ export class Triage {
   #queue: (() => void)[] = []
   #savedList = $derived(newestFirst(this.#saved))
   #seenList = $derived(newestFirst(this.#seen))
-  #canUndo = $derived(this.#undo.length > 0)
   #lastAction = $derived.by(() => {
     const top = this.#undo.at(-1)
     return top ? { kind: top.kind, repo: top.repo } : null
@@ -229,10 +228,6 @@ export class Triage {
 
   get seen(): Entry[] {
     return this.#seenList
-  }
-
-  get canUndo(): boolean {
-    return this.#canUndo
   }
 
   get lastAction(): { kind: UndoKind; repo: Repo } | null {
