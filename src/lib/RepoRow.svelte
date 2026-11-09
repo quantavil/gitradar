@@ -257,7 +257,10 @@
       onpointermove={pointerMove}
       onpointerup={(e) => release(e, true)}
       onpointercancel={(e) => release(e, false)}
-      onlostpointercapture={(e) => release(e, false)}
+      onlostpointercapture={(e) => {
+        // Touch lets the pressed child capture implicitly; that child's release bubbles here and must not end the drag.
+        if (e.target === e.currentTarget) release(e, false)
+      }}
     >
       <header class="card-head">
         <div class="head-title">
