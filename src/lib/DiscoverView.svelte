@@ -5,7 +5,6 @@
   import { TIMEFRAMES, type Repo, type Timeframe } from './types'
   import RepoRow from './RepoRow.svelte'
   import { toast } from './toast.svelte'
-  import { readNamesByPeriod, sameRead } from './read-marks'
 
   interface Props {
     // The row to highlight: the explicit selection, or the first row by default.
@@ -32,8 +31,8 @@
 
   let shown = $state(PERIODS_FIRST)
   let sentinel = $state<HTMLElement | null>(null)
-  // Rows scrolled up past the sticky period header count as read, per period.
-  let readNames = $state<Record<string, string[]>>({})
+  // Cards scrolled up past the sticky period header, across all periods. They are always the first cards in the feed.
+  let readCount = $state(0)
 
   const listKey = $derived(`${feed.timeframe}|${feed.language}|${feed.sort}`)
   const visible = $derived(feed.periods.slice(0, shown))
@@ -46,39 +45,23 @@
     TIMEFRAMES[(TIMEFRAMES.findIndex((t) => t.id === feed.timeframe) + 1) % TIMEFRAMES.length],
   )
 
-  // The read line is where a sticky header sits while stuck: rows above it have been read. The header's
-  // current position is not used, because it is pushed up at the end of its period and the line would leave the screen.
-  function readLine(): number {
+  // Cards above this line, just under the top bar and the sticky period header, have been read.
+  function measureRead(): number {
     const header = document.querySelector<HTMLElement>('.period-label')
-    return header ? (parseFloat(getComputedStyle(header).top) || 0) + header.offsetHeight : 0
+    const line = header ? (parseFloat(getComputedStyle(header).top) || 0) + header.offsetHeight : 0
+    let count = 0
+    for (const row of document.querySelectorAll('li.item')) {
+      if (row.getBoundingClientRect().bottom > line) break
+      count++
+    }
+    return count
   }
 
-  function measureRead() {
-    const line = readLine()
-    const next = readNamesByPeriod(
-      visible.map((period) => ({ key: period.key, names: period.repos.map((repo) => repo.full_name) })),
-      (name) => document.getElementById(`repo-${name}`)?.getBoundingClientRect().bottom,
-      line,
-    )
-    if (!sameRead(next, readNames)) readNames = next
-  }
-
-  function clearRead(period: { key: string; repos: Repo[] }) {
-    // Measure now rather than trust the last frame: a scroll that has not been measured yet would clear the wrong cards.
-    measureRead()
-    const names = new Set(readNames[period.key] ?? [])
-    const repos = period.repos.filter((r) => names.has(r.full_name))
+  function clearRead() {
+    const repos = visible.flatMap((period) => period.repos).slice(0, measureRead())
     if (repos.length === 0) return
-    // Removing read cards above the screen moves the cards the reader is looking at. Remember the first
-    // card below the line and put it back where it was once the list has updated.
-    const line = readLine()
-    const anchor = [...document.querySelectorAll<HTMLElement>('li.item')].find((li) => li.getBoundingClientRect().top >= line)
-    const anchorTop = anchor?.getBoundingClientRect().top
     triage.dismissMany(repos)
     toast.show(`Cleared ${repos.length} read`)
-    void tick().then(() => {
-      if (anchor?.isConnected && anchorTop !== undefined) window.scrollBy(0, anchor.getBoundingClientRect().top - anchorTop)
-    })
   }
 
   $effect(() => {
@@ -87,14 +70,14 @@
       if (frame) return
       frame = requestAnimationFrame(() => {
         frame = 0
-        measureRead()
+        readCount = measureRead()
       })
     }
     window.addEventListener('scroll', onScroll, { passive: true })
     window.addEventListener('resize', onScroll)
     // Lists change as rows leave or periods load, which moves the boundary without a scroll.
     void visible.map((p) => p.repos.length)
-    void tick().then(measureRead)
+    void tick().then(() => (readCount = measureRead()))
     return () => {
       window.removeEventListener('scroll', onScroll)
       window.removeEventListener('resize', onScroll)
@@ -107,7 +90,6 @@
   $effect(() => {
     void listKey
     shown = PERIODS_FIRST
-    readNames = {}
     window.scrollTo({ top: 0 })
   })
 
@@ -171,19 +153,16 @@
       <button type="button" class="link" onclick={() => void feed.load()}>Retry</button>
     </p>
   {/if}
+  {#if readCount > 0}
+    <button type="button" class="clear" onclick={clearRead}>Clear {readCount} read</button>
+  {/if}
   <div class="lg">
     {#each visible as period (period.key)}
       {@const gainMax = Math.max(...period.repos.map((r) => r.stars_gained))}
       <section>
         <h2 class="period-label" class:current={period.current}>
           <span>{period.label}</span>
-          {#if readNames[period.key]?.length}
-            <button type="button" class="clear" onclick={() => clearRead(period)}>
-              Clear {readNames[period.key].length} read
-            </button>
-          {:else}
-            <span>{period.repos.length}</span>
-          {/if}
+          <span>{period.repos.length}</span>
         </h2>
         {#if period.repos.length === 0}
           <p class="caught">All caught up for {windowLabel}.</p>
@@ -232,29 +211,21 @@
   }
 
   .clear {
-    margin: -6px -8px;
-    padding: 6px 8px;
-    border-radius: 6px;
-    color: var(--accent-text);
-    font: inherit;
-    letter-spacing: inherit;
-    text-transform: inherit;
+    position: fixed;
+    top: calc(var(--top-h) + 44px);
+    right: 12px;
+    z-index: var(--z-dock);
+    padding: 7px 12px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: var(--bg);
+    font: 600 12px/1 var(--font-mono);
     cursor: pointer;
   }
 
-  .clear:hover {
-    background: var(--hover);
-  }
-
   .clear:focus-visible {
-    outline: 2px solid var(--accent);
-  }
-
-  @media (pointer: coarse) {
-    .clear {
-      margin: -12px -10px;
-      padding: 12px 10px;
-    }
+    outline: 2px solid var(--ink);
+    outline-offset: 2px;
   }
 
   .sentinel {
