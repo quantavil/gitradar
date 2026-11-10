@@ -145,6 +145,30 @@ describe('Triage', () => {
     expect(triage.lastAction?.repo.full_name).toBe('org/earlier')
   })
 
+  it('one undo reverses a bulk dismiss larger than the undo limit', async () => {
+    const triage = await readyTriage()
+    triage.dismissMany(Array.from({ length: 25 }, (_, index) => repo(`org/repo-${index}`)))
+    expect(triage.seen).toHaveLength(25)
+
+    triage.undo()
+    expect(triage.seen).toHaveLength(0)
+    expect(triage.lastAction).toBeNull()
+  })
+
+  it('lastAction skips records whose effect is gone', async () => {
+    const triage = await readyTriage()
+    triage.dismiss(repo('org/alpha'))
+    vi.setSystemTime(T0 + 1)
+    triage.dismiss(repo('org/beta'))
+    expect(triage.lastAction?.repo.full_name).toBe('org/beta')
+
+    triage.clearSeen()
+    expect(triage.lastAction).toBeNull()
+
+    triage.dismiss(repo('org/gamma'))
+    expect(triage.lastAction?.repo.full_name).toBe('org/gamma')
+  })
+
   it('undoes actions newest first and keeps at most 20', async () => {
     const triage = await readyTriage()
     for (let index = 0; index < 25; index += 1) {

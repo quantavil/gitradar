@@ -157,6 +157,19 @@ const withoutEntry = (index: Index, key: string): Index => {
 
 const newestFirst = (index: Index): Entry[] => [...index.values()].sort((a, b) => b.at - a.at)
 
+// Keeps the newest UNDO_LIMIT actions. A bulk action counts once, however many records it wrote,
+// and is dropped whole, so one undo always reverses all of it.
+function trimUndo(stack: UndoRecord[]): UndoRecord[] {
+  let actions = 0
+  for (let i = stack.length - 1; i >= 0; i -= 1) {
+    const newer = stack[i + 1]
+    if (newer?.group !== undefined && newer.group === stack[i].group) continue
+    actions += 1
+    if (actions > UNDO_LIMIT) return stack.slice(i + 1)
+  }
+  return stack
+}
+
 export function createMemoryAdapter(): KeyValueAdapter {
   const values = new Map<Collection, Entry[]>()
   return {
@@ -195,8 +208,9 @@ export class Triage {
   #queue: (() => void)[] = []
   #savedList = $derived(newestFirst(this.#saved))
   #seenList = $derived(newestFirst(this.#seen))
+  // The newest record that undo would actually reverse, so a stale record never names the wrong repo.
   #lastAction = $derived.by(() => {
-    const top = this.#undo.at(-1)
+    const top = this.#undo.findLast((record) => this.#isCurrent(record))
     return top ? { kind: top.kind, repo: top.repo } : null
   })
 
@@ -386,17 +400,18 @@ export class Triage {
     const previous = this.#index(source).get(key)
     this.#assign(target, withEntry(this.#index(target), key, { repo: stored, at }))
     if (previous) this.#assign(source, withoutEntry(this.#index(source), key))
-    this.#undo = [
-      ...this.#undo,
-      {
-        kind: action,
-        repo: stored,
-        at,
-        group,
-        previous: previous ? { collection: source, entry: previous } : null,
-      },
-    ].slice(-UNDO_LIMIT)
+    this.#pushUndo({
+      kind: action,
+      repo: stored,
+      at,
+      group,
+      previous: previous ? { collection: source, entry: previous } : null,
+    })
     if (commit) this.#commit()
+  }
+
+  #pushUndo(record: UndoRecord): void {
+    this.#undo = trimUndo([...this.#undo, record])
   }
 
   #remove(collection: Collection, name: string): void {
@@ -404,13 +419,12 @@ export class Triage {
     const entry = this.#index(collection).get(key)
     if (!entry) return
     this.#assign(collection, withoutEntry(this.#index(collection), key))
-    const record: UndoRecord = {
+    this.#pushUndo({
       kind: collection === 'saved' ? 'unsave' : 'restore',
       repo: entry.repo,
       at: Date.now(),
       previous: { collection, entry },
-    }
-    this.#undo = [...this.#undo, record].slice(-UNDO_LIMIT)
+    })
     this.#commit()
   }
 

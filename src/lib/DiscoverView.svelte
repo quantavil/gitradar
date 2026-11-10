@@ -5,15 +5,19 @@
   import { TIMEFRAMES, type Repo, type Timeframe } from './types'
   import RepoRow from './RepoRow.svelte'
   import { toast } from './toast.svelte'
+  import { readNamesByPeriod, sameRead } from './read-marks'
 
   interface Props {
+    // The row to highlight: the explicit selection, or the first row by default.
     selectedKey: string | null
+    // Set by arrow-key moves; the page scrolls to it. Triage and the default row never move the page.
+    revealKey: string | null
     onselect: (name: string) => void
     onsave: (repo: Repo) => void
     ondismiss: (repo: Repo) => void
   }
 
-  let { selectedKey, onselect, onsave, ondismiss }: Props = $props()
+  let { selectedKey, revealKey, onselect, onsave, ondismiss }: Props = $props()
 
   // Periods are rendered a few at a time so the DOM stays bounded however far the feed runs.
   const PERIODS_FIRST = 1
@@ -42,33 +46,39 @@
     TIMEFRAMES[(TIMEFRAMES.findIndex((t) => t.id === feed.timeframe) + 1) % TIMEFRAMES.length],
   )
 
-  // The boundary is the bottom edge of the sticky header: rows above it have been read.
-  function measureRead() {
+  // The read line is where a sticky header sits while stuck: rows above it have been read. The header's
+  // current position is not used, because it is pushed up at the end of its period and the line would leave the screen.
+  function readLine(): number {
     const header = document.querySelector<HTMLElement>('.period-label')
-    const line = header ? header.getBoundingClientRect().bottom : 0
-    const next: Record<string, string[]> = {}
-    for (const period of visible) {
-      const names: string[] = []
-      for (const repo of period.repos) {
-        const row = document.getElementById(`repo-${repo.full_name}`)
-        if (row && row.getBoundingClientRect().bottom <= line + 1) names.push(repo.full_name)
-      }
-      // One card of buffer: the row nearest the boundary stays, so a quick scroll back never loses its place.
-      names.pop()
-      if (names.length > 0) next[period.key] = names
-    }
-    const same =
-      Object.keys(next).length === Object.keys(readNames).length &&
-      Object.entries(next).every(([k, v]) => readNames[k]?.length === v.length)
-    if (!same) readNames = next
+    return header ? (parseFloat(getComputedStyle(header).top) || 0) + header.offsetHeight : 0
+  }
+
+  function measureRead() {
+    const line = readLine()
+    const next = readNamesByPeriod(
+      visible.map((period) => ({ key: period.key, names: period.repos.map((repo) => repo.full_name) })),
+      (name) => document.getElementById(`repo-${name}`)?.getBoundingClientRect().bottom,
+      line,
+    )
+    if (!sameRead(next, readNames)) readNames = next
   }
 
   function clearRead(period: { key: string; repos: Repo[] }) {
+    // Measure now rather than trust the last frame: a scroll that has not been measured yet would clear the wrong cards.
+    measureRead()
     const names = new Set(readNames[period.key] ?? [])
     const repos = period.repos.filter((r) => names.has(r.full_name))
     if (repos.length === 0) return
+    // Removing read cards above the screen moves the cards the reader is looking at. Remember the first
+    // card below the line and put it back where it was once the list has updated.
+    const line = readLine()
+    const anchor = [...document.querySelectorAll<HTMLElement>('li.item')].find((li) => li.getBoundingClientRect().top >= line)
+    const anchorTop = anchor?.getBoundingClientRect().top
     triage.dismissMany(repos)
     toast.show(`Cleared ${repos.length} read`)
+    void tick().then(() => {
+      if (anchor?.isConnected && anchorTop !== undefined) window.scrollBy(0, anchor.getBoundingClientRect().top - anchorTop)
+    })
   }
 
   $effect(() => {
@@ -92,15 +102,18 @@
     }
   })
 
-  // A different listing starts again from its current period.
+  // A different listing starts again: back to the top, the first period, and nothing read yet.
+  // Without the reset the browser's scroll anchoring would carry the old position into the new order.
   $effect(() => {
     void listKey
     shown = PERIODS_FIRST
+    readNames = {}
+    window.scrollTo({ top: 0 })
   })
 
-  // Keyboard moves can land on a period that is not rendered yet: reveal it, then bring the row into view.
+  // A key move can land on a period that is not rendered yet: reveal it, then bring the row into view.
   $effect(() => {
-    const key = selectedKey
+    const key = revealKey
     if (key === null) return
     const at = untrack(() => feed.periods.findIndex((p) => p.repos.some((r) => r.full_name === key)))
     if (at >= 0 && at >= untrack(() => shown)) shown = at + 1

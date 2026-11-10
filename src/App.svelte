@@ -12,6 +12,8 @@
   let view = $state<View>('discover')
   // The selected row is what S, D, O act on.
   let selectedKey = $state<string | null>(null)
+  // Set only by arrow-key moves: the page follows them, but triage and undo never move the page.
+  let revealKey = $state<string | null>(null)
   let topHeight = $state(0)
 
   // Walks the rendered order, so keyboard moves cross period boundaries.
@@ -27,6 +29,7 @@
   function setView(next: View) {
     view = next
     selectedKey = null
+    revealKey = null
     window.scrollTo({ top: 0 })
   }
 
@@ -67,6 +70,7 @@
       const step = e.key === 'ArrowDown' || e.key === 'j' ? 1 : -1
       const next = flat[Math.min(flat.length - 1, Math.max(0, at + step))]
       selectedKey = next.full_name
+      revealKey = next.full_name
       return
     }
 
@@ -88,6 +92,7 @@
     {#if view === 'discover'}
       <DiscoverView
         selectedKey={activeKey}
+        {revealKey}
         onselect={select}
         onsave={(repo) => triageRepo(repo, 'save')}
         ondismiss={(repo) => triageRepo(repo, 'dismiss')}
