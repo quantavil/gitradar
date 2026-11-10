@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { clearArchiveCache } from './client'
 import { Feed } from './feed.svelte'
 import { createMemoryAdapter, Triage } from './triage.svelte'
@@ -6,12 +6,7 @@ import type { Repo } from './types'
 
 const BASE = 'https://quantavil.github.io/trendshift/data/'
 
-function repo(
-  fullName: string,
-  periodKey: string,
-  rank: number,
-  overrides: Partial<Repo> = {},
-): Repo {
+function repo(fullName: string, periodKey: string, rank: number, overrides: Partial<Repo> = {}): Repo {
   return {
     period_key: periodKey,
     rank,
@@ -208,10 +203,6 @@ describe('Feed', () => {
     feed.setSort('newest')
 
     const restored = new Feed(triage)
-    expect([restored.timeframe, restored.language, restored.sort]).toEqual([
-      'monthly',
-      'rust',
-      'newest',
-    ])
+    expect([restored.timeframe, restored.language, restored.sort]).toEqual(['monthly', 'rust', 'newest'])
   })
 })

@@ -1,12 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import {
-  formatAge,
-  formatCount,
-  formatGain,
-  isNewRepo,
-  languageColor,
-  periodLabel,
-} from './format'
+import { describe, expect, it } from 'vite-plus/test'
+import { formatAge, formatCount, formatGain, isNewRepo, languageColor, periodLabel } from './format'
 
 const NOW = Date.parse('2026-10-18T12:00:00Z')
 const daysAgo = (days: number) => new Date(NOW - days * 24 * 60 * 60 * 1000).toISOString()

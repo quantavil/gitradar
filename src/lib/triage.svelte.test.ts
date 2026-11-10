@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { createMemoryAdapter, patchPrefs, readPrefs, Triage, type KeyValueAdapter } from './triage.svelte'
 import type { Repo } from './types'
 
@@ -374,7 +374,9 @@ describe('preferences', () => {
   it('falls back to defaults for missing or invalid values', () => {
     vi.stubGlobal(
       'localStorage',
-      fakeLocalStorage({ [PREFS_KEY]: JSON.stringify({ timeframe: 'hourly', sort: 'random', theme: 3 }) }),
+      fakeLocalStorage({
+        [PREFS_KEY]: JSON.stringify({ timeframe: 'hourly', sort: 'random', theme: 3 }),
+      }),
     )
     expect(readPrefs()).toEqual({
       timeframe: 'daily',

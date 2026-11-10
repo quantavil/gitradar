@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { archiveUrl, clearArchiveCache, fetchArchive } from './client'
 
 const BASE = 'https://quantavil.github.io/trendshift/data'
@@ -69,9 +69,7 @@ describe('fetchArchive', () => {
 
   it('times out with a readable message', async () => {
     fetchMock.mockImplementation(hangingFetch)
-    await expect(fetchArchive('daily', 'all', { timeoutMs: 5 })).rejects.toThrow(
-      'Request timed out after 5ms',
-    )
+    await expect(fetchArchive('daily', 'all', { timeoutMs: 5 })).rejects.toThrow('Request timed out after 5ms')
   })
 
   it('rejects with AbortError when the caller aborts', async () => {
@@ -84,8 +82,8 @@ describe('fetchArchive', () => {
 
   it('rejects immediately when the caller signal is already aborted', async () => {
     fetchMock.mockImplementation(hangingFetch)
-    await expect(fetchArchive('daily', 'all', { signal: AbortSignal.abort() })).rejects.toMatchObject(
-      { name: 'AbortError' },
-    )
+    await expect(fetchArchive('daily', 'all', { signal: AbortSignal.abort() })).rejects.toMatchObject({
+      name: 'AbortError',
+    })
   })
 })

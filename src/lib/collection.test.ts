@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vite-plus/test'
 import {
   applyFilters,
   filterEntries,
@@ -67,7 +67,14 @@ describe('sortEntries', () => {
 
 describe('filterEntries', () => {
   const entries = [
-    entry({ full_name: 'anthropics/claude-code', language: 'TypeScript', description: 'Terminal agent' }, 1),
+    entry(
+      {
+        full_name: 'anthropics/claude-code',
+        language: 'TypeScript',
+        description: 'Terminal agent',
+      },
+      1,
+    ),
     entry({ full_name: 'acme/parser', language: 'Rust', tags: ['ai-agent', 'json'] }, 2),
     entry({ full_name: 'acme/notes', language: 'Go', description: 'Rust-style notes app' }, 3),
   ]

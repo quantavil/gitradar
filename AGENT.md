@@ -1,7 +1,7 @@
 # Project Agent (AGENT.md)
 
 ## Project Overview
-- **GitRadar**: trending GitHub repository discovery. Svelte 5 runes, Vite 8, Tailwind v4, `idb-keyval`, Bun, Vitest.
+- **GitRadar**: trending GitHub repository discovery. Svelte 5 runes, Vite+ (`vp`: Vite, Vitest, Oxlint, Oxfmt), Tailwind v4, `idb-keyval`, Bun.
 - **Data**: `https://quantavil.github.io/trendshift/data/{daily|weekly|monthly|yearly}/{tf}-{lang}.json`. Each file is a newest-first archive of 25-repo periods; `period_key` is `2026-10-18`, `2026-W42`, `2026-M10` or `2026`.
 
 ## Architecture (`src/lib`)
@@ -22,4 +22,4 @@
 - `data-theme` on `<html>` is `system` or a named theme (`THEMES` in `types.ts`: light, dark, nord, dracula, solarized, rosepine); `index.html` sets it before paint, so a new theme needs its token block in `app.css`, its entry in `THEMES` and its id in the `index.html` list.
 - `RepoRow` swipe writes transform/CSS vars straight to the DOM in a `requestAnimationFrame`; never route pointer-move through `$state`. Commit is distance >= clamp(56, 20% width, 88) or a flick.
 - Reassign `$state` Maps and Sets; mutating them in place does not notify `$derived`.
-- Verify with `bun run verify` (type check, unit tests, build).
+- Verify with `bun run verify` (type check, unit tests, build); `bunx vp check` runs format and lint.
